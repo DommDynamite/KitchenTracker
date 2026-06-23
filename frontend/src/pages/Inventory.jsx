@@ -4,6 +4,7 @@ import {
   ShoppingBag, Archive, HelpCircle, ThermometerSun, AlertTriangle, RotateCw,
   LayoutGrid, List, Edit2, Package, ChevronDown
 } from 'lucide-react';
+import ConfirmModal from '../components/ConfirmModal';
 
 function addDays(dateStr, days) {
   const parts = dateStr.split('-');
@@ -55,6 +56,7 @@ export default function Inventory() {
   const [editRemainingServings, setEditRemainingServings] = useState(1);
   const [editStorageLocation, setEditStorageLocation] = useState('Pantry');
   const [editExpirationDate, setEditExpirationDate] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   // New purchase Form State
   const [productId, setProductId] = useState('');
@@ -216,20 +218,24 @@ export default function Inventory() {
   };
 
   const handleDeleteItem = async (id) => {
-    if (!window.confirm('Delete this package log? (It will be removed entirely, not marked as consumed)')) return;
-    try {
-      const res = await fetch(`/api/inventory/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        setShowEditModal(false);
-        setEditingGroup(null);
-        setSelectedPackage(null);
-        fetchInventoryAndProducts();
+    setDeleteConfirm({
+      message: 'Delete this package log? (It will be removed entirely, not marked as consumed)',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/api/inventory/${id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setShowEditModal(false);
+            setEditingGroup(null);
+            setSelectedPackage(null);
+            fetchInventoryAndProducts();
+          }
+        } catch (error) {
+          console.error('Error deleting inventory item:', error);
+        }
       }
-    } catch (error) {
-      console.error('Error deleting inventory item:', error);
-    }
+    });
   };
 
   const handleOpenEdit = (group) => {
@@ -1270,6 +1276,17 @@ export default function Inventory() {
           <option key={idx} value={store} />
         ))}
       </datalist>
+
+      <ConfirmModal 
+        isOpen={!!deleteConfirm}
+        title="Delete Package"
+        message={deleteConfirm?.message}
+        onConfirm={() => {
+          deleteConfirm?.onConfirm();
+          setDeleteConfirm(null);
+        }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }

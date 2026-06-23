@@ -4,6 +4,7 @@ import {
   RotateCw, BookOpen, Clock, Heart, Users, Trash2, Upload, PlusCircle, MinusCircle, Layers,
   List, Sliders, LayoutGrid, Edit, ChevronDown
 } from 'lucide-react';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function Recipes() {
   const [recipes, setRecipes] = useState([]);
@@ -18,6 +19,7 @@ export default function Recipes() {
   const [selectedIngredientIds, setSelectedIngredientIds] = useState([]);
   const [ingDropdownOpen, setIngDropdownOpen] = useState(false);
   const [editingRecipe, setEditingRecipe] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -97,21 +99,25 @@ export default function Recipes() {
 
   const handleDeleteRecipe = async (id, e) => {
     e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this recipe?')) return;
-    try {
-      const res = await fetch(`/api/recipes/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        if (activeRecipe && activeRecipe.id === id) {
-          handleCloseRecipe();
-        } else {
-          fetchRecipesAndProducts();
+    setDeleteConfirm({
+      message: 'Are you sure you want to delete this recipe?',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/api/recipes/${id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            if (activeRecipe && activeRecipe.id === id) {
+              handleCloseRecipe();
+            } else {
+              fetchRecipesAndProducts();
+            }
+          }
+        } catch (error) {
+          console.error('Error deleting recipe:', error);
         }
       }
-    } catch (error) {
-      console.error('Error deleting recipe:', error);
-    }
+    });
   };
 
   // Image Upload helper
@@ -1084,6 +1090,17 @@ export default function Recipes() {
           </div>
         </div>
       )}
+
+      <ConfirmModal 
+        isOpen={!!deleteConfirm}
+        title="Delete Recipe"
+        message={deleteConfirm?.message}
+        onConfirm={() => {
+          deleteConfirm?.onConfirm();
+          setDeleteConfirm(null);
+        }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import {
   Layers, Package, Check, X, Upload, Camera, Database,
   Eye, EyeOff
 } from 'lucide-react';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -13,6 +14,7 @@ export default function Products() {
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [showChildProducts, setShowChildProducts] = useState(true);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -206,18 +208,21 @@ export default function Products() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this product? This will also remove any related inventory items.')) return;
-    
-    try {
-      const res = await fetch(`/api/products/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        fetchProducts();
+    setDeleteConfirm({
+      message: 'Are you sure you want to delete this product? This will also remove any related inventory items.',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/api/products/${id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            fetchProducts();
+          }
+        } catch (error) {
+          console.error('Error deleting product:', error);
+        }
       }
-    } catch (error) {
-      console.error('Error deleting product:', error);
-    }
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -846,6 +851,17 @@ export default function Products() {
           </div>
         </div>
       )}
+
+      <ConfirmModal 
+        isOpen={!!deleteConfirm}
+        title="Delete Product"
+        message={deleteConfirm?.message}
+        onConfirm={() => {
+          deleteConfirm?.onConfirm();
+          setDeleteConfirm(null);
+        }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, Check, X, Sliders, MapPin, AlertCircle 
 } from 'lucide-react';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function Settings() {
   const [locations, setLocations] = useState([]);
@@ -12,6 +13,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const fetchLocations = async () => {
     setLoading(true);
@@ -102,25 +104,28 @@ export default function Settings() {
   };
 
   const handleDeleteLocation = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to delete "${name}"? Any inventory items kept in this location will be set to unspecified.`)) return;
-
-    setError('');
-    setSuccess('');
-    try {
-      const res = await fetch(`/api/locations/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        setSuccess('Location deleted successfully!');
-        fetchLocations();
-      } else {
-        const data = await res.json();
-        setError(data.error || 'Failed to delete location');
+    setDeleteConfirm({
+      message: `Are you sure you want to delete "${name}"? Any inventory items kept in this location will be set to unspecified.`,
+      onConfirm: async () => {
+        setError('');
+        setSuccess('');
+        try {
+          const res = await fetch(`/api/locations/${id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setSuccess('Location deleted successfully!');
+            fetchLocations();
+          } else {
+            const data = await res.json();
+            setError(data.error || 'Failed to delete location');
+          }
+        } catch (err) {
+          console.error(err);
+          setError('Network error deleting location');
+        }
       }
-    } catch (err) {
-      console.error(err);
-      setError('Network error deleting location');
-    }
+    });
   };
 
   return (
@@ -277,6 +282,17 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      <ConfirmModal 
+        isOpen={!!deleteConfirm}
+        title="Delete Location"
+        message={deleteConfirm?.message}
+        onConfirm={() => {
+          deleteConfirm?.onConfirm();
+          setDeleteConfirm(null);
+        }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }
