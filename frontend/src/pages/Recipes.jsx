@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, ChevronRight, ChevronLeft, Check, X, 
   RotateCw, BookOpen, Clock, Heart, Users, Trash2, Upload, PlusCircle, MinusCircle, Layers,
-  List, Sliders, LayoutGrid, Edit
+  List, Sliders, LayoutGrid, Edit, ChevronDown
 } from 'lucide-react';
 
 export default function Recipes() {
@@ -15,7 +15,8 @@ export default function Recipes() {
   const [checkedEquipment, setCheckedEquipment] = useState({});
   const [stepsViewMode, setStepsViewMode] = useState('slider'); // 'slider' or 'list'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
-  const [selectedIngredientId, setSelectedIngredientId] = useState('');
+  const [selectedIngredientIds, setSelectedIngredientIds] = useState([]);
+  const [ingDropdownOpen, setIngDropdownOpen] = useState(false);
   const [editingRecipe, setEditingRecipe] = useState(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -282,12 +283,25 @@ export default function Recipes() {
     }));
   };
 
+  const toggleIngredient = (id) => {
+    if (id === 'All') {
+      setSelectedIngredientIds([]);
+    } else {
+      const numericId = parseInt(id);
+      setSelectedIngredientIds(prev => 
+        prev.includes(numericId)
+          ? prev.filter(i => i !== numericId)
+          : [...prev, numericId]
+      );
+    }
+  };
+
   const filteredRecipes = recipes.filter(r => {
     const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (r.description && r.description.toLowerCase().includes(searchQuery.toLowerCase()));
       
-    const matchesIngredient = selectedIngredientId === '' || 
-      (r.ingredientProductIds && r.ingredientProductIds.includes(parseInt(selectedIngredientId)));
+    const matchesIngredient = selectedIngredientIds.length === 0 || 
+      selectedIngredientIds.every(id => r.ingredientProductIds && r.ingredientProductIds.includes(id));
       
     return matchesSearch && matchesIngredient;
   });
@@ -353,19 +367,65 @@ export default function Recipes() {
               </div>
 
               {/* Filter by Ingredient Dropdown */}
-              <div className="w-full sm:w-64">
-                <select
-                  value={selectedIngredientId}
-                  onChange={(e) => setSelectedIngredientId(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input bg-slate-900 text-slate-200 text-sm cursor-pointer"
+              <div className="relative w-full sm:w-64">
+                <button 
+                  type="button"
+                  onClick={() => setIngDropdownOpen(!ingDropdownOpen)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-slate-700/80 bg-slate-900/50 text-sm font-semibold text-slate-200 hover:border-slate-500 transition-colors cursor-pointer"
                 >
-                  <option value="">All Ingredients</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>
-                      Filter: {p.name} {p.brand ? `(${p.brand})` : ''}
-                    </option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {selectedIngredientIds.length === 0 
+                      ? 'All Ingredients' 
+                      : selectedIngredientIds.length === 1 
+                        ? products.find(p => p.id === selectedIngredientIds[0])?.name || '1 Ingredient'
+                        : `${selectedIngredientIds.length} Ingredients`}
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-slate-400 ml-1.5 shrink-0" />
+                </button>
+
+                {ingDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIngDropdownOpen(false)} />
+                    <div className="absolute left-0 mt-1.5 w-full rounded-xl border border-slate-800 bg-slate-955/95 backdrop-blur-md p-2 shadow-2xl z-20 space-y-0.5 animate-scale-up">
+                      <div className="flex justify-between items-center px-2 py-1.5 border-b border-slate-800 text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                        <span>Filter Ingredients</span>
+                        {selectedIngredientIds.length > 0 && (
+                          <button 
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setSelectedIngredientIds([]); }}
+                            className="text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer text-[10px]"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-60 overflow-y-auto space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleIngredient('All')}
+                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-905 text-left transition-colors text-slate-200 cursor-pointer text-xs"
+                        >
+                          <span className="truncate">All Ingredients</span>
+                          {selectedIngredientIds.length === 0 && <Check className="h-3.5 w-3.5 text-indigo-400" />}
+                        </button>
+                        {products.map(p => {
+                          const isChecked = selectedIngredientIds.includes(p.id);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => toggleIngredient(p.id)}
+                              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-905 text-left transition-colors text-slate-200 cursor-pointer text-xs"
+                            >
+                              <span className="truncate">{p.name} {p.brand ? `(${p.brand})` : ''}</span>
+                              {isChecked && <Check className="h-3.5 w-3.5 text-indigo-400" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
