@@ -196,11 +196,8 @@ export async function initDb() {
     for (const name of defaults) {
       await db.run('INSERT INTO storage_locations (name) VALUES (?)', [name]);
     }
-  }
 
-  // Seed initial values if products table is empty
-  const count = await db.get('SELECT COUNT(*) as count FROM products');
-  if (count.count === 0) {
+    // Seed initial values only on a completely fresh database install
     console.log('Seeding initial database...');
     // Seed some products
     // Parent generic products
