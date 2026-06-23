@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, ChevronRight, ChevronLeft, Check, X, 
   RotateCw, BookOpen, Clock, Heart, Users, Trash2, Upload, PlusCircle, MinusCircle, Layers,
-  List, Sliders
+  List, Sliders, LayoutGrid, Edit
 } from 'lucide-react';
 
 export default function Recipes() {
@@ -14,6 +14,9 @@ export default function Recipes() {
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [checkedEquipment, setCheckedEquipment] = useState({});
   const [stepsViewMode, setStepsViewMode] = useState('slider'); // 'slider' or 'list'
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [selectedIngredientId, setSelectedIngredientId] = useState('');
+  const [editingRecipe, setEditingRecipe] = useState(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -182,6 +185,53 @@ export default function Recipes() {
     setRecipeSteps(updated);
   };
 
+  const handleEditRecipeClick = async (recipe, e) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`/api/recipes/${recipe.id}`);
+      const data = await res.json();
+      
+      setEditingRecipe(recipe);
+      setRecipeName(data.recipe.name);
+      setRecipeDesc(data.recipe.description || '');
+      setRecipeServings(data.recipe.servings);
+      setRecipeImage(data.recipe.image_path || '');
+      
+      // Populate ingredients
+      if (data.ingredients && data.ingredients.length > 0) {
+        setRecipeIngredients(data.ingredients.map(ing => ({
+          product_id: ing.product_id.toString(),
+          amount: ing.amount.toString(),
+          unit: ing.unit
+        })));
+      } else {
+        setRecipeIngredients([{ product_id: '', amount: '', unit: 'pieces' }]);
+      }
+      
+      // Populate equipment
+      if (data.equipment && data.equipment.length > 0) {
+        setRecipeEquipment(data.equipment.map(eq => eq.name));
+      } else {
+        setRecipeEquipment(['']);
+      }
+      
+      // Populate steps
+      if (data.steps && data.steps.length > 0) {
+        setRecipeSteps(data.steps.map(step => ({
+          instruction: step.instruction,
+          image_path: step.image_path || ''
+        })));
+      } else {
+        setRecipeSteps([{ instruction: '', image_path: '' }]);
+      }
+      
+      setShowAddModal(true);
+    } catch (error) {
+      console.error('Error fetching recipe details for edit:', error);
+      alert('Failed to load recipe details for editing.');
+    }
+  };
+
   const handleSaveRecipe = async (e) => {
     e.preventDefault();
     if (!recipeName || recipeIngredients.some(i => !i.product_id || !i.amount)) {
@@ -204,20 +254,24 @@ export default function Recipes() {
     };
 
     try {
-      const res = await fetch('/api/recipes', {
-        method: 'POST',
+      const url = editingRecipe ? `/api/recipes/${editingRecipe.id}` : '/api/recipes';
+      const method = editingRecipe ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, {
+        method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       if (res.ok) {
         setShowAddModal(false);
+        setEditingRecipe(null);
         fetchRecipesAndProducts();
       } else {
         const err = await res.json();
         alert(`Error saving recipe: ${err.error}`);
       }
     } catch (error) {
-      console.error('Error creating recipe:', error);
+      console.error('Error saving recipe:', error);
     }
   };
 
@@ -228,10 +282,15 @@ export default function Recipes() {
     }));
   };
 
-  const filteredRecipes = recipes.filter(r => 
-    r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (r.description && r.description.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredRecipes = recipes.filter(r => {
+    const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (r.description && r.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      
+    const matchesIngredient = selectedIngredientId === '' || 
+      (r.ingredientProductIds && r.ingredientProductIds.includes(parseInt(selectedIngredientId)));
+      
+    return matchesSearch && matchesIngredient;
+  });
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -246,6 +305,7 @@ export default function Recipes() {
           </div>
           <button 
             onClick={() => {
+              setEditingRecipe(null);
               setRecipeName('');
               setRecipeDesc('');
               setRecipeServings(2);
@@ -277,16 +337,59 @@ export default function Recipes() {
       {/* Main Container */}
       {!activeRecipe ? (
         <>
-          {/* Search bar */}
-          <div className="relative max-w-sm glass-panel p-3 rounded-xl flex items-center">
-            <Search className="absolute left-6 h-5 w-5 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search recipes..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg glass-input text-sm"
-            />
+          {/* Controls Bar */}
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between glass-panel p-4 rounded-xl">
+            {/* Search and Filter */}
+            <div className="flex flex-col sm:flex-row gap-4 flex-1 max-w-2xl w-full">
+              <div className="relative flex-1 flex items-center">
+                <Search className="absolute left-3.5 h-4.5 w-4.5 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Search recipes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 rounded-lg glass-input text-sm"
+                />
+              </div>
+
+              {/* Filter by Ingredient Dropdown */}
+              <div className="w-full sm:w-64">
+                <select
+                  value={selectedIngredientId}
+                  onChange={(e) => setSelectedIngredientId(e.target.value)}
+                  className="w-full p-2.5 rounded-lg glass-input bg-slate-900 text-slate-200 text-sm cursor-pointer"
+                >
+                  <option value="">All Ingredients</option>
+                  {products.map(p => (
+                    <option key={p.id} value={p.id}>
+                      Filter: {p.name} {p.brand ? `(${p.brand})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Grid / List View Toggle */}
+            <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 p-1 rounded-lg self-end md:self-auto">
+              <button 
+                onClick={() => setViewMode('grid')}
+                className={`p-1.5 rounded-md transition-colors ${
+                  viewMode === 'grid' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Grid View"
+              >
+                <LayoutGrid className="h-4.5 w-4.5" />
+              </button>
+              <button 
+                onClick={() => setViewMode('list')}
+                className={`p-1.5 rounded-md transition-colors ${
+                  viewMode === 'list' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                }`}
+                title="List View"
+              >
+                <List className="h-4.5 w-4.5" />
+              </button>
+            </div>
           </div>
 
           {/* Recipes List */}
@@ -300,7 +403,7 @@ export default function Recipes() {
               <h3 className="text-xl font-bold text-white">No Recipes Found</h3>
               <p className="text-slate-500 mt-1">Design your first culinary masterpiece by clicking "Create Recipe" above.</p>
             </div>
-          ) : (
+          ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredRecipes.map(recipe => (
                 <div 
@@ -318,13 +421,22 @@ export default function Recipes() {
                     ) : (
                       <BookOpen className="h-12 w-12 text-slate-700 group-hover:text-indigo-400 transition-colors" />
                     )}
-                    <button 
-                      onClick={(e) => handleDeleteRecipe(recipe.id, e)}
-                      className="absolute right-3 top-3 p-1.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-950 transition-colors"
-                      title="Delete Recipe"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="absolute right-3 top-3 flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button 
+                        onClick={(e) => handleEditRecipeClick(recipe, e)}
+                        className="p-1.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-400 hover:text-indigo-400 hover:border-indigo-950 transition-colors"
+                        title="Edit Recipe"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={(e) => handleDeleteRecipe(recipe.id, e)}
+                        className="p-1.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-950 transition-colors"
+                        title="Delete Recipe"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                   <div className="p-4 flex-1 flex flex-col justify-between">
                     <div>
@@ -346,6 +458,86 @@ export default function Recipes() {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : (
+            /* List View UI */
+            <div className="glass-panel overflow-hidden rounded-2xl border border-slate-800/60 animate-fade-in">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-xs text-slate-200">
+                  <thead className="border-b border-slate-800 bg-slate-950/40 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <tr>
+                      <th className="px-6 py-4">Recipe</th>
+                      <th className="px-6 py-4">Description</th>
+                      <th className="px-6 py-4">Yield</th>
+                      <th className="px-6 py-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 bg-slate-900/10">
+                    {filteredRecipes.map(recipe => (
+                      <tr 
+                        key={recipe.id}
+                        onClick={() => handleOpenRecipe(recipe)}
+                        className="group hover:bg-slate-800/40 transition-colors cursor-pointer"
+                      >
+                        <td className="px-6 py-4 font-semibold text-white">
+                          <div className="flex items-center gap-3">
+                            <div className="h-12 w-12 rounded-lg border border-slate-855 bg-slate-900/50 flex items-center justify-center shrink-0 overflow-hidden">
+                              {recipe.image_path ? (
+                                <img 
+                                  src={recipe.image_path} 
+                                  alt={recipe.name} 
+                                  className="w-full h-full object-cover" 
+                                />
+                              ) : (
+                                <BookOpen className="h-5 w-5 text-slate-500 group-hover:text-indigo-400 transition-colors" />
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-sm font-bold text-white group-hover:text-glow block truncate max-w-xs">{recipe.name}</span>
+                              <span className="text-[10px] text-indigo-400 font-medium">Click to view/cook</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <p className="text-xs text-slate-400 line-clamp-2 max-w-md">
+                            {recipe.description || 'No description provided.'}
+                          </p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-300 bg-slate-850 px-2 py-0.5 rounded border border-slate-800">
+                            <Users className="h-3 w-3 text-indigo-400" /> {recipe.servings} srv
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => handleOpenRecipe(recipe)}
+                              className="px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+                              title="Cook Recipe"
+                            >
+                              Cook
+                            </button>
+                            <button
+                              onClick={(e) => handleEditRecipeClick(recipe, e)}
+                              className="p-2 rounded-lg border border-slate-800 bg-slate-900/50 text-slate-400 hover:text-indigo-400 hover:border-indigo-950 transition-colors"
+                              title="Edit Recipe"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteRecipe(recipe.id, e)}
+                              className="p-2 rounded-lg border border-slate-800 bg-slate-900/50 text-slate-400 hover:text-rose-400 hover:border-rose-950 transition-colors"
+                              title="Delete Recipe"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </>
@@ -594,7 +786,10 @@ export default function Recipes() {
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-2xl rounded-2xl glass-panel p-6 space-y-4 my-8 relative animate-scale-up">
             <button 
-              onClick={() => setShowAddModal(false)}
+              onClick={() => {
+                setShowAddModal(false);
+                setEditingRecipe(null);
+              }}
               className="absolute right-4 top-4 p-1 rounded-full text-slate-400 hover:text-white"
             >
               <X className="h-5 w-5" />
@@ -602,7 +797,7 @@ export default function Recipes() {
 
             <h2 className="text-xl font-bold text-white flex items-center gap-2 pb-2 border-b border-slate-800">
               <BookOpen className="h-5 w-5 text-indigo-400" />
-              Create New Recipe
+              {editingRecipe ? 'Edit Recipe' : 'Create New Recipe'}
             </h2>
 
             <form onSubmit={handleSaveRecipe} className="space-y-4 text-xs text-slate-200 max-h-[70vh] overflow-y-auto pr-1">
@@ -810,7 +1005,10 @@ export default function Recipes() {
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
                 <button 
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingRecipe(null);
+                  }}
                   className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold"
                 >
                   Cancel

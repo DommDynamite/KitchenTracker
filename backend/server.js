@@ -636,7 +636,26 @@ app.get('/api/recipes', async (req, res) => {
   try {
     const db = await getDb();
     const recipes = await db.all('SELECT * FROM recipes ORDER BY name ASC');
-    res.json(recipes);
+    
+    // Fetch all recipe ingredients to map them
+    const allIngredients = await db.all('SELECT recipe_id, product_id FROM recipe_ingredients');
+    
+    // Group product IDs by recipe ID
+    const recipeIngredientsMap = {};
+    for (const ing of allIngredients) {
+      if (!recipeIngredientsMap[ing.recipe_id]) {
+        recipeIngredientsMap[ing.recipe_id] = [];
+      }
+      recipeIngredientsMap[ing.recipe_id].push(ing.product_id);
+    }
+    
+    // Enrich recipes with their ingredient product IDs
+    const enrichedRecipes = recipes.map(r => ({
+      ...r,
+      ingredientProductIds: recipeIngredientsMap[r.id] || []
+    }));
+    
+    res.json(enrichedRecipes);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -767,6 +786,75 @@ app.post('/api/recipes', async (req, res) => {
 
     await db.run('COMMIT');
     res.status(201).json({ id: recipeId });
+  } catch (err) {
+    const db = await getDb();
+    await db.run('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update Recipe
+app.put('/api/recipes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, description, servings, image_path, steps, equipment, ingredients } = req.body;
+
+  if (!name || !ingredients || ingredients.length === 0) {
+    return res.status(400).json({ error: 'Recipe name and ingredients are required' });
+  }
+
+  try {
+    const db = await getDb();
+    
+    // Check if recipe exists
+    const existingRecipe = await db.get('SELECT * FROM recipes WHERE id = ?', [id]);
+    if (!existingRecipe) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    // Begin transaction manually
+    await db.run('BEGIN TRANSACTION');
+
+    // Update main recipe
+    await db.run(
+      'UPDATE recipes SET name = ?, description = ?, servings = ?, image_path = ? WHERE id = ?',
+      [name, description || null, servings || 1.0, image_path || null, id]
+    );
+
+    // Delete existing child records
+    await db.run('DELETE FROM recipe_steps WHERE recipe_id = ?', [id]);
+    await db.run('DELETE FROM recipe_equipment WHERE recipe_id = ?', [id]);
+    await db.run('DELETE FROM recipe_ingredients WHERE recipe_id = ?', [id]);
+
+    // Insert updated steps
+    if (steps && steps.length > 0) {
+      for (let i = 0; i < steps.length; i++) {
+        await db.run(
+          'INSERT INTO recipe_steps (recipe_id, step_number, instruction, image_path) VALUES (?, ?, ?, ?)',
+          [id, i + 1, steps[i].instruction || steps[i], steps[i].image_path || null]
+        );
+      }
+    }
+
+    // Insert updated equipment
+    if (equipment && equipment.length > 0) {
+      for (const eq of equipment) {
+        await db.run(
+          'INSERT INTO recipe_equipment (recipe_id, name) VALUES (?, ?)',
+          [id, eq]
+        );
+      }
+    }
+
+    // Insert updated ingredients
+    for (const ing of ingredients) {
+      await db.run(
+        'INSERT INTO recipe_ingredients (recipe_id, product_id, amount, unit) VALUES (?, ?, ?, ?)',
+        [id, ing.product_id, ing.amount, ing.unit]
+      );
+    }
+
+    await db.run('COMMIT');
+    res.json({ message: 'Recipe updated successfully' });
   } catch (err) {
     const db = await getDb();
     await db.run('ROLLBACK');
