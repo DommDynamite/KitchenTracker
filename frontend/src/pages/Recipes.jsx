@@ -591,7 +591,7 @@ export default function Recipes() {
 
       {/* Add Recipe Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-2xl rounded-2xl glass-panel p-6 space-y-4 my-8 relative animate-scale-up">
             <button 
               onClick={() => setShowAddModal(false)}
