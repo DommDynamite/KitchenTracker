@@ -1,0 +1,1275 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Plus, Search, Sliders, Calendar, Trash2, Check, X,
+  ShoppingBag, Archive, HelpCircle, ThermometerSun, AlertTriangle, RotateCw,
+  LayoutGrid, List, Edit2, Package, ChevronDown
+} from 'lucide-react';
+
+function addDays(dateStr, days) {
+  const parts = dateStr.split('-');
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  
+  const date = new Date(year, month, day);
+  date.setDate(date.getDate() + days);
+  
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getEffectiveExpiry(item) {
+  const printedExpiry = item.expiration_date;
+  const openedDate = item.opened_date;
+  const useByDays = item.use_by_days_after_opening;
+
+  if (item.status === 'opened' && openedDate && useByDays !== null && useByDays !== undefined && useByDays !== '') {
+    const openedExpiryStr = addDays(openedDate, parseInt(useByDays, 10));
+    if (printedExpiry) {
+      return printedExpiry < openedExpiryStr ? printedExpiry : openedExpiryStr;
+    }
+    return openedExpiryStr;
+  }
+  return printedExpiry;
+}
+
+export default function Inventory() {
+  const [inventory, setInventory] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedLocations, setSelectedLocations] = useState([]);
+  const [filterExpiringSoon, setFilterExpiringSoon] = useState(false);
+  const [locDropdownOpen, setLocDropdownOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [consumeAmounts, setConsumeAmounts] = useState({}); // { itemId: val }
+
+  // Edit Modal State (Grouped)
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [selectedPackage, setSelectedPackage] = useState(null);
+  const [editQuantity, setEditQuantity] = useState(1);
+  const [editRemainingServings, setEditRemainingServings] = useState(1);
+  const [editStorageLocation, setEditStorageLocation] = useState('Pantry');
+  const [editExpirationDate, setEditExpirationDate] = useState('');
+
+  // New purchase Form State
+  const [productId, setProductId] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [price, setPrice] = useState('');
+  const [storeLocation, setStoreLocation] = useState('');
+  const [storageLocation, setStorageLocation] = useState('Pantry');
+  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expirationDate, setExpirationDate] = useState('');
+  const [storeSuggestions, setStoreSuggestions] = useState([]);
+  const [locations, setLocations] = useState([]);
+
+  const fetchLocations = async () => {
+    try {
+      const res = await fetch('/api/locations');
+      if (res.ok) {
+        const data = await res.json();
+        setLocations(data);
+        if (data.length > 0) {
+          const hasPantry = data.find(l => l.name.toLowerCase() === 'pantry');
+          const defaultLoc = hasPantry ? hasPantry.name : data[0].name;
+          setStorageLocation(defaultLoc);
+          setEditStorageLocation(defaultLoc);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching locations:', err);
+    }
+  };
+  const toggleLocation = (locName) => {
+    if (locName === 'All') {
+      setSelectedLocations([]);
+      return;
+    }
+    setSelectedLocations(prev => {
+      if (prev.includes(locName)) {
+        return prev.filter(l => l !== locName);
+      } else {
+        return [...prev, locName];
+      }
+    });
+  };
+  const fetchInventoryAndProducts = async () => {
+    setLoading(true);
+    try {
+      const invRes = await fetch('/api/inventory');
+      const invData = await invRes.json();
+      setInventory(invData);
+
+      // Initialize default consume amounts by product_id
+      const initialAmounts = {};
+      invData.forEach(item => {
+        if (!initialAmounts[item.product_id]) {
+          initialAmounts[item.product_id] = item.default_consumption !== undefined ? item.default_consumption : 1.0;
+        }
+      });
+      setConsumeAmounts(initialAmounts);
+
+      const prodRes = await fetch('/api/products');
+      const prodData = await prodRes.json();
+      setProducts(prodData);
+    } catch (error) {
+      console.error('Error fetching inventory details:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchStores = async () => {
+    try {
+      const res = await fetch('/api/inventory/stores');
+      if (res.ok) {
+        const data = await res.json();
+        setStoreSuggestions(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch stores:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchInventoryAndProducts();
+    fetchStores();
+    fetchLocations();
+  }, []);
+
+  const handleOpenAdd = () => {
+    setProductId(products.length > 0 ? products[0].id : '');
+    setQuantity(1);
+    setPrice('');
+    setStoreLocation('');
+    setStorageLocation('Pantry');
+    setPurchaseDate(new Date().toISOString().split('T')[0]);
+    setExpirationDate('');
+    setShowModal(true);
+  };
+
+  const handleAddPurchase = async (e) => {
+    e.preventDefault();
+    if (!productId || !quantity || !purchaseDate) {
+      alert('Product, Quantity, and Purchase Date are required.');
+      return;
+    }
+
+    const payload = {
+      product_id: parseInt(productId),
+      quantity: parseFloat(quantity),
+      price: price ? parseFloat(price) : null,
+      store_location: storeLocation || null,
+      storage_location: storageLocation,
+      purchase_date: purchaseDate,
+      expiration_date: expirationDate || null
+    };
+
+    try {
+      const res = await fetch('/api/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        setShowModal(false);
+        fetchInventoryAndProducts();
+        fetchStores();
+      } else {
+        const err = await res.json();
+        alert(`Error: ${err.error}`);
+      }
+    } catch (error) {
+      console.error('Error logging purchase:', error);
+    }
+  };
+
+  // Consume servings quick-click (product level FIFO)
+  const handleGroupConsume = async (productId, servings) => {
+    try {
+      const res = await fetch(`/api/inventory/product/${productId}/consume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ servings })
+      });
+      if (res.ok) {
+        fetchInventoryAndProducts();
+      } else {
+        const err = await res.json();
+        alert(`Error consuming portion: ${err.error}`);
+      }
+    } catch (error) {
+      console.error('Error consuming portion:', error);
+    }
+  };
+
+  // Portions adjustment helper
+  const handleAmountChange = (productId, val) => {
+    setConsumeAmounts(prev => ({
+      ...prev,
+      [productId]: val
+    }));
+  };
+
+  const handleDeleteItem = async (id) => {
+    if (!window.confirm('Delete this package log? (It will be removed entirely, not marked as consumed)')) return;
+    try {
+      const res = await fetch(`/api/inventory/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setShowEditModal(false);
+        setEditingGroup(null);
+        setSelectedPackage(null);
+        fetchInventoryAndProducts();
+      }
+    } catch (error) {
+      console.error('Error deleting inventory item:', error);
+    }
+  };
+
+  const handleOpenEdit = (group) => {
+    setEditingGroup(group);
+    // Auto-select the first package
+    const firstItem = group.items[0] || null;
+    selectPackageForEditing(firstItem);
+    setShowEditModal(true);
+  };
+
+  const selectPackageForEditing = (pkg) => {
+    setSelectedPackage(pkg);
+    if (pkg) {
+      setEditQuantity(pkg.quantity);
+      setEditRemainingServings(pkg.remaining_servings);
+      const hasPantry = locations.find(l => l.name.toLowerCase() === 'pantry');
+      const defaultLoc = hasPantry ? hasPantry.name : (locations[0] ? locations[0].name : 'Pantry');
+      setEditStorageLocation(pkg.storage_location || defaultLoc);
+      setEditExpirationDate(pkg.expiration_date || '');
+    } else {
+      setEditQuantity(1);
+      setEditRemainingServings(0);
+      const hasPantry = locations.find(l => l.name.toLowerCase() === 'pantry');
+      const defaultLoc = hasPantry ? hasPantry.name : (locations[0] ? locations[0].name : 'Pantry');
+      setEditStorageLocation(defaultLoc);
+      setEditExpirationDate('');
+    }
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!selectedPackage) return;
+
+    const payload = {
+      quantity: parseFloat(editQuantity),
+      remaining_servings: parseFloat(editRemainingServings),
+      storage_location: editStorageLocation,
+      expiration_date: editExpirationDate || null
+    };
+
+    try {
+      const res = await fetch(`/api/inventory/${selectedPackage.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        setShowEditModal(false);
+        setEditingGroup(null);
+        setSelectedPackage(null);
+        fetchInventoryAndProducts();
+      } else {
+        const err = await res.json();
+        alert(`Error updating item: ${err.error}`);
+      }
+    } catch (error) {
+      console.error('Error saving manual inventory edit:', error);
+    }
+  };
+
+  // Filter criteria
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const getUrgency = (expiryStr) => {
+    if (!expiryStr) return 'safe';
+    const expDate = new Date(expiryStr);
+    expDate.setHours(0,0,0,0);
+    const diff = expDate - today;
+    const diffDays = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return 'expired';
+    if (diffDays <= 3) return 'danger';
+    if (diffDays <= 7) return 'warning';
+    return 'safe';
+  };
+
+  const getGroupSoonestExpiry = (items) => {
+    let soonest = null;
+    items.forEach(item => {
+      const eff = getEffectiveExpiry(item);
+      if (eff) {
+        if (!soonest || eff < soonest) {
+          soonest = eff;
+        }
+      }
+    });
+    return soonest;
+  };
+
+  const filteredInventory = inventory.filter(item => {
+    const matchSearch = item.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.product_brand && item.product_brand.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (item.store_location && item.store_location.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const matchLocation = selectedLocations.length === 0 || 
+      selectedLocations.includes(item.storage_location);
+
+    const matchExpiringSoon = !filterExpiringSoon || getUrgency(getEffectiveExpiry(item)) !== 'safe';
+
+    return matchSearch && matchLocation && matchExpiringSoon;
+  });
+
+  const groupedInventory = [];
+  const groups = {};
+
+  filteredInventory.forEach(item => {
+    const groupId = item.parent_product_id || item.product_id;
+    if (!groups[groupId]) {
+      const parentProduct = item.parent_product_id ? products.find(p => p.id === item.parent_product_id) : null;
+
+      groups[groupId] = {
+        product_id: groupId,
+        product_name: parentProduct ? parentProduct.name : item.product_name,
+        product_brand: parentProduct ? (parentProduct.brand || '') : (item.product_brand || ''),
+        product_image: parentProduct ? parentProduct.image_path : item.product_image,
+        product_category: parentProduct ? parentProduct.category : item.product_category,
+        product_unit: parentProduct ? parentProduct.default_unit : item.product_unit,
+        servings_per_package: parentProduct ? parentProduct.servings_per_package : item.servings_per_package,
+        serving_size: parentProduct ? parentProduct.serving_size : item.serving_size,
+        serving_unit: parentProduct ? parentProduct.serving_unit : item.serving_unit,
+        default_consumption: parentProduct ? parentProduct.default_consumption : item.default_consumption,
+        use_by_days_after_opening: parentProduct ? parentProduct.use_by_days_after_opening : item.use_by_days_after_opening,
+        package_count: 0,
+        total_remaining_servings: 0,
+        total_original_servings: 0,
+        total_price: 0,
+        storage_locations: new Set(),
+        items: []
+      };
+      groupedInventory.push(groups[groupId]);
+    }
+    const g = groups[groupId];
+    g.package_count += item.quantity;
+    g.total_remaining_servings += item.remaining_servings;
+    g.total_original_servings += item.original_servings;
+    if (item.price) {
+      g.total_price += item.price;
+    }
+    if (item.storage_location) {
+      g.storage_locations.add(item.storage_location);
+    }
+    g.items.push(item);
+  });
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+            Kitchen <span className="text-glow font-bold">Inventory</span>
+          </h1>
+          <p className="text-slate-400 mt-1">Manage active packages, consume servings, and check expiry warning statuses.</p>
+        </div>
+        <button 
+          onClick={handleOpenAdd}
+          className="flex items-center justify-center gap-2 rounded-lg bg-gradient-indigo px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-transform active:scale-95 hover:opacity-90"
+        >
+          <Plus className="h-4.5 w-4.5" /> Log Purchase
+        </button>
+      </div>
+
+      {/* Filter / Search Bar */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between glass-panel p-4 rounded-xl">
+        {/* Search */}
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-2.5 h-5 w-5 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="Filter by product name, brand, store..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-lg glass-input text-sm"
+          />
+        </div>
+        
+        {/* Location & View Mode Filters */}
+        <div className="flex flex-wrap gap-4 items-center justify-between w-full md:w-auto">
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Dynamic Multi-select Location Dropdown */}
+            <div className="relative">
+              <button 
+                onClick={() => setLocDropdownOpen(!locDropdownOpen)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700/80 bg-slate-900/50 text-xs font-semibold text-slate-200 hover:border-slate-500 transition-colors cursor-pointer"
+              >
+                <Sliders className="h-3.5 w-3.5 text-indigo-400" />
+                <span>
+                  {selectedLocations.length === 0 
+                    ? 'All Locations' 
+                    : selectedLocations.length === 1 
+                      ? selectedLocations[0] 
+                      : `${selectedLocations.length} Locations`}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 text-slate-400 ml-0.5" />
+              </button>
+
+              {locDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setLocDropdownOpen(false)} />
+                  <div className="absolute left-0 mt-1.5 w-56 rounded-xl border border-slate-800 bg-slate-950/95 backdrop-blur-md p-2 shadow-2xl z-20 space-y-0.5 animate-scale-up">
+                    <div className="flex justify-between items-center px-2 py-1.5 border-b border-slate-800 text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                      <span>Filter Locations</span>
+                      {selectedLocations.length > 0 && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setSelectedLocations([]); }}
+                          className="text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-60 overflow-y-auto space-y-0.5">
+                      {['All', ...locations.map(l => l.name)].map(loc => {
+                        const isChecked = loc === 'All'
+                          ? selectedLocations.length === 0
+                          : selectedLocations.includes(loc);
+                        return (
+                          <button
+                            key={loc}
+                            onClick={() => toggleLocation(loc)}
+                            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-900 text-left transition-colors text-slate-200 cursor-pointer text-xs"
+                          >
+                            <span className="truncate">{loc}</span>
+                            {isChecked && <Check className="h-3.5 w-3.5 text-indigo-400" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Expiring Soon Toggle */}
+            <button
+              onClick={() => setFilterExpiringSoon(!filterExpiringSoon)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                filterExpiringSoon 
+                  ? 'bg-rose-500/25 border-rose-500/50 text-rose-350 shadow-[0_0_10px_rgba(244,63,94,0.15)]' 
+                  : 'glass-input text-slate-355 hover:border-slate-500 hover:text-white'
+              }`}
+            >
+              <Calendar className="h-3.5 w-3.5" />
+              <span>Expiring Soon</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 p-1 rounded-lg">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded transition-colors ${
+                viewMode === 'grid' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Grid View"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded transition-colors ${
+                viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+              title="List View"
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Inventory Grid */}
+      {loading ? (
+        <div className="flex h-48 justify-center items-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent"></div>
+        </div>
+      ) : groupedInventory.length === 0 ? (
+        <div className="glass-panel p-12 text-center rounded-2xl flex flex-col items-center">
+          <h3 className="text-xl font-bold text-white">No Items in Stock</h3>
+          <p className="text-slate-500 mt-1">Adjust filters or click "Log Purchase" to load food into your stock.</p>
+        </div>
+      ) : viewMode === 'grid' ? (
+        /* GRID VIEW LAYOUT */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {groupedInventory.map(group => {
+            const soonestExpiry = getGroupSoonestExpiry(group.items);
+            const urgency = getUrgency(soonestExpiry);
+            const percentage = group.total_original_servings > 0 
+              ? (group.total_remaining_servings / group.total_original_servings) * 100 
+              : 0;
+
+            // Resolve active product image (opened first, soonest expiry first)
+            const getActiveProductImage = (groupItems) => {
+              if (!groupItems || groupItems.length === 0) return null;
+              const sortedItems = [...groupItems].sort((a, b) => {
+                if (a.status === 'opened' && b.status !== 'opened') return -1;
+                if (a.status !== 'opened' && b.status === 'opened') return 1;
+                const aExp = getEffectiveExpiry(a);
+                const bExp = getEffectiveExpiry(b);
+                if (!aExp) return 1;
+                if (!bExp) return -1;
+                return aExp < bExp ? -1 : 1;
+              });
+              for (const item of sortedItems) {
+                if (item.product_image) {
+                  return item.product_image;
+                }
+              }
+              return null;
+            };
+
+            const displayedImage = getActiveProductImage(group.items) || group.product_image;
+            
+            // Border color based on urgency
+            let borderClass = 'border-slate-800/80';
+            let alertBadge = null;
+            if (urgency === 'expired') {
+              borderClass = 'border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.1)]';
+              alertBadge = (
+                <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                  <AlertTriangle className="h-3 w-3" /> Expired
+                </span>
+              );
+            } else if (urgency === 'danger') {
+              borderClass = 'border-rose-400/30';
+              alertBadge = (
+                <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-400/20">
+                  Expiring Soon
+                </span>
+              );
+            } else if (urgency === 'warning') {
+              borderClass = 'border-amber-500/30';
+              alertBadge = (
+                <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                  Expires soon
+                </span>
+              );
+            }
+
+            const currentConsumeAmount = consumeAmounts[group.product_id] !== undefined 
+              ? consumeAmounts[group.product_id] 
+              : (group.default_consumption || 1.0);
+
+            // Check if any package is opened
+            const hasOpenedPackage = group.items.some(item => item.status === 'opened');
+
+            return (
+              <div 
+                key={group.product_id} 
+                className={`glass-panel rounded-2xl p-5 flex flex-col justify-between border ${borderClass} relative overflow-hidden`}
+              >
+                {/* Image Preview watermark */}
+                {displayedImage && (
+                  <div className="absolute right-0 top-0 w-24 h-24 opacity-20 pointer-events-none select-none">
+                    <img src={displayedImage} alt="" className="w-full h-full object-cover rounded-bl-full" />
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded">
+                      {Array.from(group.storage_locations).join(', ') || 'Unspecified'}
+                    </span>
+                    <div className="flex gap-1.5">
+                      {alertBadge}
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-850 text-slate-300 border border-slate-700/50">
+                        {group.package_count} package{group.package_count !== 1 ? 's' : ''}
+                      </span>
+                      {hasOpenedPackage && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                          Opened
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <h3 className="text-base font-bold text-white mt-3 truncate" title={group.product_name}>
+                    {group.product_name}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-semibold mt-0.5">
+                    {group.product_brand || 'Generic Brand'}
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-2 mt-4 text-[11px] text-slate-400">
+                    <div>
+                      <span className="text-slate-500 block">Soonest Expiration</span>
+                      <span className="text-white font-medium flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {soonestExpiry || 'No Expiry'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Category</span>
+                      <span className="text-white font-medium">{group.product_category || 'Pantry'}</span>
+                    </div>
+                  </div>
+
+                  {/* Servings visual bar & buttons */}
+                  <div className="mt-5 space-y-2.5">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="text-slate-400">Portions Remaining</span>
+                      <span className="text-glow font-bold">
+                        {group.product_unit === '%'
+                          ? `${group.total_remaining_servings.toFixed(0)}%`
+                          : `${group.total_remaining_servings.toFixed(1)} / ${group.total_original_servings.toFixed(0)} srv`}
+                      </span>
+                    </div>
+                    
+                    {/* Visual Bar */}
+                    <div className="w-full h-2 rounded bg-slate-800 overflow-hidden">
+                      <div 
+                        className={`h-full rounded transition-all duration-300 ${
+                          percentage < 25 ? 'bg-rose-500' : percentage < 50 ? 'bg-amber-500' : 'bg-indigo-500'
+                        }`}
+                        style={{ width: `${percentage}%` }}
+                      ></div>
+                    </div>
+
+                    {/* Typed portions consumption panel */}
+                    <div className="flex items-center gap-2 pt-2 justify-between">
+                      <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            const val = parseFloat(currentConsumeAmount);
+                            const step = group.product_unit === '%' ? 25 : 0.5;
+                            handleAmountChange(group.product_id, Math.max(group.product_unit === '%' ? 25 : 0.1, val - step).toFixed(group.product_unit === '%' ? 0 : 1));
+                          }}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold"
+                        >
+                          -
+                        </button>
+                        <input 
+                          type="number"
+                          step="any"
+                          min="0.1"
+                          value={currentConsumeAmount}
+                          onChange={(e) => handleAmountChange(group.product_id, e.target.value)}
+                          className="w-12 text-center text-xs font-semibold bg-transparent border-none outline-none text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            const val = parseFloat(currentConsumeAmount);
+                            const step = group.product_unit === '%' ? 25 : 0.5;
+                            handleAmountChange(group.product_id, (val + step).toFixed(group.product_unit === '%' ? 0 : 1));
+                          }}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const amt = parseFloat(currentConsumeAmount) || 1.0;
+                          handleGroupConsume(group.product_id, amt);
+                        }}
+                        className="flex-1 py-1.5 px-3 rounded bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-xs font-bold text-white transition-all text-center border border-indigo-500/20"
+                      >
+                        Consume
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer and Price / Edit */}
+                <div className="flex justify-between items-center mt-6 pt-3 border-t border-slate-800/60 text-xs">
+                  <span className="text-slate-500 font-medium">
+                    {group.total_price > 0 ? `Paid: $${group.total_price.toFixed(2)}` : 'No Price Logged'}
+                  </span>
+                  
+                  <button 
+                    onClick={() => handleOpenEdit(group)}
+                    className="p-1 rounded text-slate-400 hover:text-indigo-400 hover:bg-indigo-950/20 transition-colors"
+                    title="Manage Product Packages"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* COMPACT LIST VIEW LAYOUT */
+        <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 font-bold uppercase tracking-wider">
+                  <th className="p-4">Product</th>
+                  <th className="p-4">Locations</th>
+                  <th className="p-4">Soonest Expiration</th>
+                  <th className="p-4">Packages</th>
+                  <th className="p-4">Remaining Servings</th>
+                  <th className="p-4 text-center">Consume Action</th>
+                  <th className="p-4 text-right">Edit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/40">
+                {groupedInventory.map(group => {
+                  const soonestExpiry = getGroupSoonestExpiry(group.items);
+                  const urgency = getUrgency(soonestExpiry);
+                  const percentage = group.total_original_servings > 0 
+                    ? (group.total_remaining_servings / group.total_original_servings) * 100 
+                    : 0;
+
+                  // Resolve active product image (opened first, soonest expiry first)
+                  const getActiveProductImage = (groupItems) => {
+                    if (!groupItems || groupItems.length === 0) return null;
+                    const sortedItems = [...groupItems].sort((a, b) => {
+                      if (a.status === 'opened' && b.status !== 'opened') return -1;
+                      if (a.status !== 'opened' && b.status === 'opened') return 1;
+                      const aExp = getEffectiveExpiry(a);
+                      const bExp = getEffectiveExpiry(b);
+                      if (!aExp) return 1;
+                      if (!bExp) return -1;
+                      return aExp < bExp ? -1 : 1;
+                    });
+                    for (const item of sortedItems) {
+                      if (item.product_image) {
+                        return item.product_image;
+                      }
+                    }
+                    return null;
+                  };
+
+                  const displayedImage = getActiveProductImage(group.items) || group.product_image;
+                  
+                  let alertColor = 'text-slate-300';
+                  if (urgency === 'expired') alertColor = 'text-rose-400 font-bold';
+                  else if (urgency === 'danger') alertColor = 'text-rose-300';
+                  else if (urgency === 'warning') alertColor = 'text-amber-300';
+
+                  const currentConsumeAmount = consumeAmounts[group.product_id] !== undefined 
+                    ? consumeAmounts[group.product_id] 
+                    : (group.default_consumption || 1.0);
+
+                  return (
+                    <tr key={group.product_id} className="hover:bg-slate-900/30 transition-colors">
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          {displayedImage ? (
+                            <img src={displayedImage} alt="" className="h-10 w-10 object-cover rounded-lg border border-slate-800 shrink-0" />
+                          ) : (
+                            <div className="h-10 w-10 rounded-lg border border-slate-800 bg-slate-900/50 flex items-center justify-center shrink-0">
+                              <Package className="h-5 w-5 text-slate-500" />
+                            </div>
+                          )}
+                          <div>
+                            <span className="font-bold text-white block text-sm">{group.product_name}</span>
+                            <span className="text-slate-400 text-[10px]">{group.product_brand || 'Generic'}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-slate-300">
+                          {Array.from(group.storage_locations).join(', ') || 'Unspecified'}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        <span className={alertColor}>{soonestExpiry || 'No Expiry'}</span>
+                      </td>
+                      <td className="p-4">
+                        <span className="text-white font-semibold">{group.package_count}</span>
+                      </td>
+                      <td className="p-4 min-w-[120px]">
+                        <div className="flex items-center gap-2">
+                          <div className="w-16 h-1.5 rounded bg-slate-800 overflow-hidden shrink-0">
+                            <div 
+                              className={`h-full rounded ${percentage < 25 ? 'bg-rose-500' : percentage < 50 ? 'bg-amber-500' : 'bg-indigo-500'}`}
+                              style={{ width: `${percentage}%` }}
+                            ></div>
+                          </div>
+                          <span className="font-semibold text-white">
+                            {group.product_unit === '%'
+                              ? `${group.total_remaining_servings.toFixed(0)}%`
+                              : `${group.total_remaining_servings.toFixed(1)}/${group.total_original_servings.toFixed(0)} srv`}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center justify-center gap-2">
+                           <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-md p-1">
+                             <button 
+                               type="button" 
+                               onClick={() => {
+                                 const val = parseFloat(currentConsumeAmount);
+                                 const step = group.product_unit === '%' ? 25 : 0.5;
+                                 handleAmountChange(group.product_id, Math.max(group.product_unit === '%' ? 25 : 0.1, val - step).toFixed(group.product_unit === '%' ? 0 : 1));
+                               }}
+                               className="px-1.5 py-0.5 rounded bg-slate-850 hover:bg-slate-700 text-white text-[10px] font-bold animate-active"
+                             >
+                               -
+                             </button>
+                             <input 
+                               type="number"
+                               step="any"
+                               min="0.1"
+                               value={currentConsumeAmount}
+                               onChange={(e) => handleAmountChange(group.product_id, e.target.value)}
+                               className="w-10 text-center text-[10px] font-semibold bg-transparent outline-none border-none text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                             />
+                             <button 
+                               type="button" 
+                               onClick={() => {
+                                 const val = parseFloat(currentConsumeAmount);
+                                 const step = group.product_unit === '%' ? 25 : 0.5;
+                                 handleAmountChange(group.product_id, (val + step).toFixed(group.product_unit === '%' ? 0 : 1));
+                               }}
+                               className="px-1.5 py-0.5 rounded bg-slate-850 hover:bg-slate-700 text-white text-[10px] font-bold"
+                             >
+                               +
+                             </button>
+                           </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const amt = parseFloat(currentConsumeAmount) || 1.0;
+                              handleGroupConsume(group.product_id, amt);
+                            }}
+                            className="py-1 px-3 rounded bg-indigo-600 hover:bg-indigo-500 text-[10px] font-bold text-white transition-all active:scale-95 text-center"
+                          >
+                            Consume
+                          </button>
+                        </div>
+                      </td>
+                      <td className="p-4 text-right">
+                        <button 
+                          onClick={() => handleOpenEdit(group)}
+                          className="p-1 rounded text-slate-400 hover:text-indigo-400 hover:bg-indigo-950/20 transition-colors"
+                          title="Manage Group Packages"
+                        >
+                          <Edit2 className="h-4.5 w-4.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Log Purchase Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl glass-panel p-6 space-y-4 my-8 relative animate-scale-up">
+            <button 
+              onClick={() => setShowModal(false)}
+              className="absolute right-4 top-4 p-1 rounded-full text-slate-400 hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <ShoppingBag className="h-5 w-5 text-indigo-400" />
+              Log Grocery Purchase
+            </h2>
+
+            {products.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 space-y-2">
+                <p>No products registered yet. Please create a product barcode registry entry first.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 rounded bg-indigo-600 text-white text-xs font-semibold"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleAddPurchase} className="space-y-4 text-sm text-slate-200">
+                {/* Select Product */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-400">Select Product *</label>
+                  <select 
+                    value={productId} 
+                    onChange={(e) => setProductId(e.target.value)}
+                    className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
+                    required
+                  >
+                    <option value="">-- Choose Product --</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.brand ? `(${p.brand})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Quantity & Storage Location */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400">Quantity (Packages) *</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={quantity} 
+                      onChange={(e) => setQuantity(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input"
+                      min="0.1"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400">Storage Location</label>
+                    <select 
+                      value={storageLocation} 
+                      onChange={(e) => setStorageLocation(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
+                    >
+                      {locations.map(loc => (
+                        <option key={loc.id} value={loc.name}>{loc.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Price & Store Location */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400">Price Paid ($)</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      placeholder="e.g. 3.49"
+                      value={price} 
+                      onChange={(e) => setPrice(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input"
+                      min="0"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400">Store Purchased From</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Aldi"
+                      value={storeLocation} 
+                      onChange={(e) => setStoreLocation(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input"
+                      list="store-suggestions"
+                    />
+                  </div>
+                </div>
+
+                {/* Purchase & Expiration Dates */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400">Purchase Date *</label>
+                    <input 
+                      type="date" 
+                      value={purchaseDate} 
+                      onChange={(e) => setPurchaseDate(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400">Expiration Date</label>
+                    <input 
+                      type="date" 
+                      value={expirationDate} 
+                      onChange={(e) => setExpirationDate(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input"
+                    />
+                  </div>
+                </div>
+
+                {/* Save actions */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+                  <button 
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white text-xs font-semibold shadow-lg hover:opacity-90 transition-opacity"
+                  >
+                    <Check className="h-4 w-4" /> Save Purchase
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Inventory Item Modal */}
+      {showEditModal && editingGroup && (
+        <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl glass-panel p-6 space-y-6 my-8 relative animate-scale-up">
+            <button 
+              onClick={() => {
+                setShowEditModal(false);
+                setEditingGroup(null);
+                setSelectedPackage(null);
+              }}
+              className="absolute right-4 top-4 p-1 rounded-full text-slate-400 hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <Sliders className="h-5 w-5 text-indigo-400" />
+              Manage Inventory Packages
+            </h2>
+
+            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-850 text-xs">
+              <span className="text-slate-500 font-semibold block">Product Group</span>
+              <strong className="text-white text-base">{editingGroup.product_name}</strong>
+              <span className="text-slate-400 block mt-0.5">{editingGroup.product_brand || 'Generic Brand'}</span>
+            </div>
+
+            {/* Packages Sub-table */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Package to Edit</h3>
+              <div className="border border-slate-800 rounded-xl overflow-hidden max-h-[180px] overflow-y-auto bg-slate-950/40">
+                <table className="w-full text-left border-collapse text-[11px]">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-900/50 text-slate-400 font-bold uppercase">
+                      <th className="p-2.5">Status</th>
+                      <th className="p-2.5">Servings</th>
+                      <th className="p-2.5">Storage</th>
+                      <th className="p-2.5">Effective Expiry</th>
+                      <th className="p-2.5 text-right">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/40">
+                    {editingGroup.items.map((item, idx) => {
+                      const isSelected = selectedPackage && selectedPackage.id === item.id;
+                      const effExpiry = getEffectiveExpiry(item);
+                      const urgency = getUrgency(effExpiry);
+                      
+                      let expiryColor = 'text-slate-300';
+                      if (urgency === 'expired') expiryColor = 'text-rose-400 font-bold';
+                      else if (urgency === 'danger') expiryColor = 'text-rose-300';
+                      else if (urgency === 'warning') expiryColor = 'text-amber-300';
+
+                      return (
+                        <tr 
+                          key={item.id} 
+                          onClick={() => selectPackageForEditing(item)}
+                          className={`cursor-pointer hover:bg-slate-900/40 transition-colors ${
+                            isSelected ? 'bg-indigo-600/10' : ''
+                          }`}
+                        >
+                          <td className="p-2.5">
+                            <div className="flex flex-col gap-1">
+                              <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold w-fit ${
+                                item.status === 'opened' 
+                                  ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20' 
+                                  : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+                              }`}>
+                                {item.status === 'opened' ? 'Opened' : 'Unopened'}
+                              </span>
+                              {item.product_brand && item.product_brand !== editingGroup.product_brand && (
+                                <span className="text-[9px] text-slate-400 font-medium truncate max-w-[120px]" title={item.product_name}>
+                                  {item.product_brand}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-2.5 font-medium text-white">
+                            {editingGroup.product_unit === '%'
+                              ? `${item.remaining_servings.toFixed(0)}%`
+                              : `${item.remaining_servings.toFixed(1)} / ${item.original_servings.toFixed(0)} srv`}
+                          </td>
+                          <td className="p-2.5 text-slate-300">{item.storage_location}</td>
+                          <td className={`p-2.5 ${expiryColor}`}>{effExpiry || 'No Expiry'}</td>
+                          <td className="p-2.5 text-right text-slate-400">
+                            {item.price ? `$${item.price.toFixed(2)}` : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {selectedPackage && (
+              <form onSubmit={handleSaveEdit} className="space-y-4 text-xs text-slate-200 border-t border-slate-800 pt-4 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-indigo-300 uppercase tracking-wider">
+                    Edit Package Details
+                  </h3>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    ID: {selectedPackage.id} • Purchased: {selectedPackage.purchase_date}
+                  </span>
+                </div>
+
+                <div className="bg-indigo-950/20 p-3 rounded-xl border border-indigo-500/10 text-xs flex items-center gap-3">
+                  {selectedPackage.product_image ? (
+                    <img src={selectedPackage.product_image} alt="" className="h-12 w-12 object-cover rounded-lg border border-slate-800 shrink-0" />
+                  ) : (
+                    <div className="h-12 w-12 rounded-lg border border-slate-850 bg-slate-950 flex items-center justify-center shrink-0">
+                      <Package className="h-6 w-6 text-slate-600" />
+                    </div>
+                  )}
+                  <div>
+                    <strong className="text-white text-sm block truncate max-w-[400px]" title={selectedPackage.product_name}>
+                      {selectedPackage.product_name}
+                    </strong>
+                    {selectedPackage.product_brand && (
+                      <span className="text-slate-400 block mt-0.5">Brand: {selectedPackage.product_brand}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Quantity (Packages) */}
+                  <div className="space-y-1.5">
+                    <label className="block text-slate-400 font-semibold">Package Quantity</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={editQuantity} 
+                      onChange={(e) => setEditQuantity(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input text-center font-bold text-white"
+                      min="0.1"
+                      required
+                    />
+                    <span className="text-[10px] text-slate-500 block">Usually 1.0 (individual package)</span>
+                  </div>
+                  
+                  {/* Servings Remaining */}
+                  {editingGroup.product_unit === '%' ? (
+                    <div className="space-y-1.5 col-span-1">
+                      <label className="block text-slate-400 font-semibold">Percentage Remaining</label>
+                      <div className="grid grid-cols-5 gap-1.5 pt-1">
+                        {[100, 75, 50, 25, 0].map(pct => (
+                          <button
+                            key={pct}
+                            type="button"
+                            onClick={() => setEditRemainingServings(pct)}
+                            className={`py-2 text-center rounded-lg border font-bold transition-all text-xs cursor-pointer ${
+                              parseFloat(editRemainingServings) === pct
+                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_10px_rgba(99,102,241,0.2)]'
+                                : 'glass-input text-slate-350 hover:border-slate-500'
+                            }`}
+                          >
+                            {pct}%
+                          </button>
+                        ))}
+                      </div>
+                      <span className="text-[10px] text-slate-500 block mt-1">Eyeball estimation of remaining vegetable</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <label className="block text-slate-400 font-semibold">Servings Remaining</label>
+                      <input 
+                        type="number" 
+                        step="any"
+                        value={editRemainingServings} 
+                        onChange={(e) => setEditRemainingServings(e.target.value)}
+                        className="w-full p-2.5 rounded-lg glass-input text-center font-bold text-white"
+                        min="0"
+                        required
+                      />
+                      <span className="text-[10px] text-slate-500 block">
+                        Max: {(parseFloat(editQuantity) || 1) * (editingGroup.servings_per_package || 1)} servings
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Location & Expiry */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-slate-400 font-semibold">Storage Location</label>
+                    <select 
+                      value={editStorageLocation} 
+                      onChange={(e) => setEditStorageLocation(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
+                    >
+                      {locations.map(loc => (
+                        <option key={loc.id} value={loc.name}>{loc.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-slate-400 font-semibold">Printed Expiration Date</label>
+                    <input 
+                      type="date" 
+                      value={editExpirationDate} 
+                      onChange={(e) => setEditExpirationDate(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input text-center text-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Save/Remove actions */}
+                <div className="flex justify-between items-center pt-4 border-t border-slate-800">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      handleDeleteItem(selectedPackage.id);
+                    }}
+                    className="px-3.5 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25 hover:bg-rose-500/20 text-rose-400 font-bold text-xs"
+                  >
+                    Remove Package
+                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setShowEditModal(false);
+                        setEditingGroup(null);
+                        setSelectedPackage(null);
+                      }}
+                      className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit"
+                      className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white font-semibold shadow-lg hover:opacity-90 transition-opacity"
+                    >
+                      <Check className="h-4 w-4" /> Save Changes
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Autocomplete Suggestions Datalist */}
+      <datalist id="store-suggestions">
+        {storeSuggestions.map((store, idx) => (
+          <option key={idx} value={store} />
+        ))}
+      </datalist>
+    </div>
+  );
+}

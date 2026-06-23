@@ -1,0 +1,29 @@
+# Node dependencies
+node_modules/
+**/node_modules/
+
+# Local databases and runtime data
+backend/data/kitchen.db
+backend/data/kitchen.db-journal
+backend/data/kitchen.db-shm
+backend/data/kitchen.db-wal
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
+
+# Frontend build outputs
+frontend/dist/
+backend/public/
+
+# Environment files and logs
+.env
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Personal configuration
+ProductionTest/
