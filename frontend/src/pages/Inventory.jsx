@@ -698,7 +698,7 @@ export default function Inventory() {
               return null;
             };
 
-            const displayedImage = getActiveProductImage(group.items) || group.product_image;
+            const displayedImage = group.product_image || getActiveProductImage(group.items);
             
             // Border color based on urgency
             let borderClass = 'border-slate-800/80';
@@ -918,7 +918,7 @@ export default function Inventory() {
                     return null;
                   };
 
-                  const displayedImage = getActiveProductImage(group.items) || group.product_image;
+                  const displayedImage = group.product_image || getActiveProductImage(group.items);
                   
                   let alertColor = 'text-slate-300';
                   if (urgency === 'expired') alertColor = 'text-rose-400 font-bold';
