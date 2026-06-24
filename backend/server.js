@@ -1600,6 +1600,11 @@ app.post('/api/activity-log/:id/undo', async (req, res) => {
 app.get('*', (req, res, next) => {
   const publicDir = path.join(__dirname, 'public');
   if (fs.existsSync(publicDir) && !req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
     return res.sendFile(path.join(publicDir, 'index.html'));
   }
   next();
