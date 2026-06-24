@@ -66,6 +66,7 @@ export default function Products() {
   const [caloriesValue, setCaloriesValue] = useState('');
   const [hasCustomServing, setHasCustomServing] = useState(false);
   const [servingSizeValue, setServingSizeValue] = useState(1);
+  const [servingsPerPackageValue, setServingsPerPackageValue] = useState(1);
 
   const getTrackingUnitOptions = () => {
     const options = [];
@@ -158,6 +159,7 @@ export default function Products() {
     setCaloriesValue('');
     setHasCustomServing(false);
     setServingSizeValue(1);
+    setServingsPerPackageValue(1);
 
     setShowModal(true);
   };
@@ -198,18 +200,22 @@ export default function Products() {
       setHasCustomServing(false);
       setCalorieMode('per_unit');
       setServingSizeValue(1);
+      setServingsPerPackageValue(sPkg);
     } else if (sSize === 100.0 && (sUnit === 'g' || sUnit === 'ml' || sUnit === 'fl_oz')) {
       setHasCustomServing(false);
       setCalorieMode('per_100');
       setServingSizeValue(100);
+      setServingsPerPackageValue(sPkg);
     } else if (sPkg === 1.0 && sSize === capVal) {
       setHasCustomServing(false);
       setCalorieMode('per_package');
       setServingSizeValue(capVal);
+      setServingsPerPackageValue(1);
     } else {
       setHasCustomServing(true);
       setCalorieMode('per_serving');
       setServingSizeValue(sSize);
+      setServingsPerPackageValue(sPkg);
     }
 
     setShowModal(true);
@@ -268,13 +274,13 @@ export default function Products() {
     let sUnit = capacityUnit;
     let sSize = 1.0;
     let sPkg = 1.0;
-    let calPerSrv = caloriesValue !== '' ? parseInt(caloriesValue, 10) : null;
+    let calPerSrv = null;
 
     const capVal = parseFloat(capacityValue) || 1.0;
 
     if (hasCustomServing) {
-      sSize = parseFloat(servingSizeValue) || 1.0;
-      sPkg = capVal / sSize;
+      sPkg = parseFloat(servingsPerPackageValue) || 1.0;
+      sSize = capVal / sPkg;
     } else {
       if (calorieMode === 'per_unit') {
         sSize = 1.0;
@@ -285,6 +291,21 @@ export default function Products() {
       } else if (calorieMode === 'per_package') {
         sSize = capVal;
         sPkg = 1.0;
+      }
+    }
+
+    if (caloriesValue !== '') {
+      const rawCal = parseInt(caloriesValue, 10);
+      if (hasCustomServing && calorieMode === 'per_serving') {
+        calPerSrv = rawCal;
+      } else if (calorieMode === 'per_unit') {
+        calPerSrv = rawCal * sSize;
+      } else if (calorieMode === 'per_100') {
+        calPerSrv = (rawCal / 100.0) * sSize;
+      } else if (calorieMode === 'per_package') {
+        calPerSrv = rawCal / sPkg;
+      } else {
+        calPerSrv = rawCal;
       }
     }
 
@@ -707,84 +728,95 @@ export default function Products() {
                       ))}
                     </select>
                   </div>
-                </div>
-              </div>
 
-              {/* Servings & Calories Configuration */}
-              <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Servings & Calories</h3>
-                
-                <div className="space-y-3">
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-300">
-                    <input 
-                      type="checkbox" 
-                      checked={hasCustomServing} 
-                      onChange={(e) => setHasCustomServing(e.target.checked)}
-                      className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    This product has a custom serving size (e.g. nutrition label serves 30g out of a 500g tub)
-                  </label>
+                  <div className="col-span-1 sm:col-span-2 border-t border-slate-800/60 pt-3 mt-1 space-y-3">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-350">
+                      <input 
+                        type="checkbox" 
+                        checked={hasCustomServing} 
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setHasCustomServing(checked);
+                          if (checked) {
+                            setServingsPerPackageValue(1.0);
+                            setServingSizeValue(parseFloat(capacityValue) || 1.0);
+                            setCalorieMode('per_serving');
+                          } else {
+                            setCalorieMode('per_unit');
+                          }
+                        }}
+                        className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Define portions/servings count for this package (e.g. 20 servings)
+                    </label>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                    {hasCustomServing ? (
-                      <>
+                    {hasCustomServing && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in">
                         <div className="space-y-1.5">
-                          <label className="block text-xs font-semibold text-slate-400">Serving Size</label>
+                          <label className="block text-xs font-semibold text-slate-400">Portions / Servings count</label>
                           <div className="flex items-center gap-2">
                             <input 
                               type="number" 
                               step="any"
-                              value={servingSizeValue} 
-                              onChange={(e) => setServingSizeValue(e.target.value)}
+                              value={servingsPerPackageValue} 
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setServingsPerPackageValue(e.target.value);
+                                if (val > 0) {
+                                  setServingSizeValue((parseFloat(capacityValue) || 1.0) / val);
+                                }
+                              }}
                               className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
-                              placeholder="e.g. 30"
+                              placeholder="e.g. 20"
                               min="0.01"
                               required
                             />
-                            <span className="text-sm text-slate-400 w-16 text-left">{capacityUnit}</span>
+                            <span className="text-sm text-slate-400 w-16 text-left">servings</span>
                           </div>
                         </div>
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-semibold text-slate-400">Calories per Serving (kcal)</label>
-                          <input 
-                            type="number" 
-                            value={caloriesValue} 
-                            onChange={(e) => setCaloriesValue(e.target.value)}
-                            className="w-full p-2.5 rounded-lg glass-input font-semibold"
-                            placeholder="e.g. 120 (Optional)"
-                            min="0"
-                          />
+                        <div className="flex items-end pb-2">
+                          <span className="text-[11px] text-slate-500 font-medium italic">
+                            Calculated: 1 serving = {((parseFloat(capacityValue) || 1.0) / (parseFloat(servingsPerPackageValue) || 1.0)).toFixed(2)} {capacityUnit}
+                          </span>
                         </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-semibold text-slate-400 font-medium">Calories Specified Per:</label>
-                          <select 
-                            value={calorieMode} 
-                            onChange={(e) => setCalorieMode(e.target.value)}
-                            className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
-                          >
-                            <option value="per_unit">1 {capacityUnit === 'pieces' ? 'piece' : capacityUnit === 'servings' ? 'serving' : capacityUnit}</option>
-                            {(capacityUnit === 'g' || capacityUnit === 'ml' || capacityUnit === 'fl_oz') && (
-                              <option value="per_100">100 {capacityUnit}</option>
-                            )}
-                            <option value="per_package">Entire {packageType} ({capacityValue} {capacityUnit})</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-semibold text-slate-400">Calories (kcal)</label>
-                          <input 
-                            type="number" 
-                            value={caloriesValue} 
-                            onChange={(e) => setCaloriesValue(e.target.value)}
-                            className="w-full p-2.5 rounded-lg glass-input font-semibold"
-                            placeholder="e.g. 150 (Optional)"
-                            min="0"
-                          />
-                        </div>
-                      </>
+                      </div>
                     )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Calories Configuration */}
+              <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Calories & Nutrition</h3>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400 font-medium">Calories Specified Per:</label>
+                    <select 
+                      value={calorieMode} 
+                      onChange={(e) => setCalorieMode(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
+                    >
+                      {hasCustomServing && (
+                        <option value="per_serving">1 serving</option>
+                      )}
+                      <option value="per_unit">1 {capacityUnit === 'pieces' ? 'piece' : capacityUnit === 'servings' ? 'serving' : capacityUnit}</option>
+                      {(capacityUnit === 'g' || capacityUnit === 'ml' || capacityUnit === 'fl_oz') && (
+                        <option value="per_100">100 {capacityUnit}</option>
+                      )}
+                      <option value="per_package">Entire {packageType} ({capacityValue} {capacityUnit})</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400">Calories (kcal)</label>
+                    <input 
+                      type="number" 
+                      value={caloriesValue} 
+                      onChange={(e) => setCaloriesValue(e.target.value)}
+                      className="w-full p-2.5 rounded-lg glass-input font-semibold"
+                      placeholder="e.g. 150 (Optional)"
+                      min="0"
+                    />
                   </div>
                 </div>
               </div>
