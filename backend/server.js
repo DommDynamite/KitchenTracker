@@ -299,8 +299,11 @@ app.post('/api/inventory', async (req, res) => {
 
   try {
     const db = await getDb();
-    const product = await db.get('SELECT servings_per_package FROM products WHERE id = ?', [product_id]);
+    await db.run('BEGIN TRANSACTION');
+
+    const product = await db.get('SELECT name, servings_per_package FROM products WHERE id = ?', [product_id]);
     if (!product) {
+      await db.run('ROLLBACK');
       return res.status(404).json({ error: 'Product not found' });
     }
 
@@ -336,8 +339,25 @@ app.post('/api/inventory', async (req, res) => {
       ids.push(result.lastID);
     }
 
+    await db.run(
+      `INSERT INTO activity_log (action_type, description, details) VALUES (?, ?, ?)`,
+      [
+        'add_inventory',
+        `Added ${qty} package(s) of ${product.name}`,
+        JSON.stringify({
+          product_id,
+          product_name: product.name,
+          quantity: qty,
+          inserted_ids: ids
+        })
+      ]
+    );
+
+    await db.run('COMMIT');
     res.status(201).json({ id: ids[0], ids });
   } catch (err) {
+    const db = await getDb();
+    try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
   }
 });
@@ -348,16 +368,19 @@ app.put('/api/inventory/:id', async (req, res) => {
 
   try {
     const db = await getDb();
+    await db.run('BEGIN TRANSACTION');
     
     // Fetch current details
     const item = await db.get('SELECT * FROM inventory_items WHERE id = ?', [req.params.id]);
     if (!item) {
+      await db.run('ROLLBACK');
       return res.status(404).json({ error: 'Inventory item not found' });
     }
 
-    // Fetch product details for servings per package
-    const product = await db.get('SELECT servings_per_package FROM products WHERE id = ?', [item.product_id]);
+    // Fetch product details for servings per package and name
+    const product = await db.get('SELECT name, servings_per_package FROM products WHERE id = ?', [item.product_id]);
     const servingsPerPackage = product ? product.servings_per_package : 1.0;
+    const productName = product ? product.name : 'Unknown Product';
 
     let nextQuantity = quantity !== undefined ? parseFloat(quantity) : item.quantity;
     let nextOriginalServings = nextQuantity * servingsPerPackage;
@@ -400,8 +423,32 @@ app.put('/api/inventory/:id', async (req, res) => {
       ]
     );
 
+    await db.run(
+      `INSERT INTO activity_log (action_type, description, details) VALUES (?, ?, ?)`,
+      [
+        'update_inventory',
+        `Updated inventory item of ${productName}`,
+        JSON.stringify({
+          product_name: productName,
+          item_id: item.id,
+          previous_state: {
+            quantity: item.quantity,
+            original_servings: item.original_servings,
+            remaining_servings: item.remaining_servings,
+            status: item.status,
+            opened_date: item.opened_date,
+            storage_location: item.storage_location,
+            expiration_date: item.expiration_date
+          }
+        })
+      ]
+    );
+
+    await db.run('COMMIT');
     res.json({ message: 'Inventory item updated successfully' });
   } catch (err) {
+    const db = await getDb();
+    try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
   }
 });
@@ -415,10 +462,16 @@ app.post('/api/inventory/:id/consume', async (req, res) => {
 
   try {
     const db = await getDb();
+    await db.run('BEGIN TRANSACTION');
+
     const item = await db.get('SELECT * FROM inventory_items WHERE id = ?', [req.params.id]);
     if (!item) {
+      await db.run('ROLLBACK');
       return res.status(404).json({ error: 'Inventory item not found' });
     }
+
+    const product = await db.get('SELECT name FROM products WHERE id = ?', [item.product_id]);
+    const productName = product ? product.name : 'Unknown Product';
 
     let remaining = item.remaining_servings - servings;
     let status = item.status;
@@ -439,8 +492,37 @@ app.post('/api/inventory/:id/consume', async (req, res) => {
       [remaining, status, opened_date, req.params.id]
     );
 
+    await db.run(
+      `INSERT INTO activity_log (action_type, description, details) VALUES (?, ?, ?)`,
+      [
+        'consume_inventory',
+        `Consumed ${servings} serving(s) of ${productName}`,
+        JSON.stringify({
+          product_name: productName,
+          changed_items: [{
+            id: item.id,
+            product_id: item.product_id,
+            quantity: item.quantity,
+            original_servings: item.original_servings,
+            price: item.price,
+            store_location: item.store_location,
+            storage_location: item.storage_location,
+            purchase_date: item.purchase_date,
+            expiration_date: item.expiration_date,
+            created_at: item.created_at,
+            remaining_servings: item.remaining_servings,
+            status: item.status,
+            opened_date: item.opened_date
+          }]
+        })
+      ]
+    );
+
+    await db.run('COMMIT');
     res.json({ remainingServings: remaining, status });
   } catch (err) {
+    const db = await getDb();
+    try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
   }
 });
@@ -475,6 +557,7 @@ app.post('/api/inventory/product/:productId/consume', async (req, res) => {
 
     let amountRemainingToDeduct = parseFloat(servings);
     let totalConsumed = 0;
+    const changedItems = [];
 
     await db.run('BEGIN TRANSACTION');
 
@@ -499,6 +582,22 @@ app.post('/api/inventory/product/:productId/consume', async (req, res) => {
         }
       }
 
+      changedItems.push({
+        id: item.id,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        original_servings: item.original_servings,
+        price: item.price,
+        store_location: item.store_location,
+        storage_location: item.storage_location,
+        purchase_date: item.purchase_date,
+        expiration_date: item.expiration_date,
+        created_at: item.created_at,
+        remaining_servings: item.remaining_servings,
+        status: item.status,
+        opened_date: item.opened_date
+      });
+
       await db.run(
         'UPDATE inventory_items SET remaining_servings = ?, status = ?, opened_date = ? WHERE id = ?',
         [newRemainingServings, status, opened_date, item.id]
@@ -506,6 +605,20 @@ app.post('/api/inventory/product/:productId/consume', async (req, res) => {
 
       totalConsumed += deduct;
       amountRemainingToDeduct -= deduct;
+    }
+
+    if (changedItems.length > 0) {
+      await db.run(
+        `INSERT INTO activity_log (action_type, description, details) VALUES (?, ?, ?)`,
+        [
+          'consume_inventory',
+          `Consumed ${servings} serving(s) of ${product.name}`,
+          JSON.stringify({
+            product_name: product.name,
+            changed_items: changedItems
+          })
+        ]
+      );
     }
 
     await db.run('COMMIT');
@@ -521,9 +634,36 @@ app.post('/api/inventory/product/:productId/consume', async (req, res) => {
 app.delete('/api/inventory/:id', async (req, res) => {
   try {
     const db = await getDb();
+    await db.run('BEGIN TRANSACTION');
+
+    const item = await db.get('SELECT * FROM inventory_items WHERE id = ?', [req.params.id]);
+    if (!item) {
+      await db.run('ROLLBACK');
+      return res.status(404).json({ error: 'Inventory item not found' });
+    }
+
+    const product = await db.get('SELECT name FROM products WHERE id = ?', [item.product_id]);
+    const productName = product ? product.name : 'Unknown Product';
+
     await db.run('DELETE FROM inventory_items WHERE id = ?', [req.params.id]);
+
+    await db.run(
+      `INSERT INTO activity_log (action_type, description, details) VALUES (?, ?, ?)`,
+      [
+        'delete_inventory',
+        `Deleted package of ${productName} from inventory`,
+        JSON.stringify({
+          product_name: productName,
+          deleted_item: item
+        })
+      ]
+    );
+
+    await db.run('COMMIT');
     res.json({ message: 'Inventory item deleted' });
   } catch (err) {
+    const db = await getDb();
+    try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
   }
 });
@@ -878,6 +1018,11 @@ app.post('/api/recipes/:id/make', async (req, res) => {
   try {
     const db = await getDb();
     
+    const recipe = await db.get('SELECT id, name FROM recipes WHERE id = ?', [req.params.id]);
+    if (!recipe) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
     let ingredients = [];
     if (req.body.ingredients && Array.isArray(req.body.ingredients)) {
       // Custom ingredients sent by frontend
@@ -907,6 +1052,7 @@ app.post('/api/recipes/:id/make', async (req, res) => {
       `, [req.params.id]);
     }
 
+    const changedItems = [];
     await db.run('BEGIN TRANSACTION');
 
     for (const ing of ingredients) {
@@ -952,6 +1098,23 @@ app.post('/api/recipes/:id/make', async (req, res) => {
 
         if (remainingInProdUnit <= 0) continue;
 
+        // Capture item state before modifying
+        changedItems.push({
+          id: item.id,
+          product_id: item.product_id,
+          quantity: item.quantity,
+          original_servings: item.original_servings,
+          price: item.price,
+          store_location: item.store_location,
+          storage_location: item.storage_location,
+          purchase_date: item.purchase_date,
+          expiration_date: item.expiration_date,
+          created_at: item.created_at,
+          remaining_servings: item.remaining_servings,
+          status: item.status,
+          opened_date: item.opened_date
+        });
+
         if (remainingInProdUnit >= amountRemainingToDeduct) {
           // This item satisfies the remaining amount needed
           // Convert amountRemainingToDeduct to item's serving unit, then divide by serving_size to get servings
@@ -986,6 +1149,21 @@ app.post('/api/recipes/:id/make', async (req, res) => {
         // If we ran out of inventory, raise error and rollback
         throw new Error(`Insufficient inventory for ingredient ${ing.product_name}. Missing ${amountRemainingToDeduct} ${ing.prod_unit}.`);
       }
+    }
+
+    if (changedItems.length > 0) {
+      await db.run(
+        `INSERT INTO activity_log (action_type, description, details) VALUES (?, ?, ?)`,
+        [
+          'make_recipe',
+          `Made recipe: ${recipe.name}`,
+          JSON.stringify({
+            recipe_id: recipe.id,
+            recipe_name: recipe.name,
+            changed_items: changedItems
+          })
+        ]
+      );
     }
 
     await db.run('COMMIT');
@@ -1105,6 +1283,8 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
     await db.run('BEGIN TRANSACTION');
 
     const today = new Date().toISOString().split('T')[0];
+    const insertedIds = [];
+    const completedListIds = [];
 
     for (const item of items) {
       const product = await db.get('SELECT servings_per_package FROM products WHERE id = ?', [item.product_id]);
@@ -1128,7 +1308,7 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
         const totalServings = pkgQty * product.servings_per_package;
         const pkgPrice = pricePerUnit ? pkgQty * pricePerUnit : null;
         
-        await db.run(
+        const insertResult = await db.run(
           `INSERT INTO inventory_items (
             product_id, quantity, original_servings, remaining_servings, price, store_location, storage_location,
             purchase_date, expiration_date, status
@@ -1138,6 +1318,7 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
             item.store_location || null, item.storage_location || 'Pantry', today, item.expiration_date || null, 'unopened'
           ]
         );
+        insertedIds.push(insertResult.lastID);
       }
 
       // Mark list item as completed if it was a manual item (ids not prefixed with 'auto-')
@@ -1146,7 +1327,22 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
           'UPDATE shopping_list SET is_completed = 1 WHERE id = ?',
           [item.list_item_id]
         );
+        completedListIds.push(item.list_item_id);
       }
+    }
+
+    if (insertedIds.length > 0 || completedListIds.length > 0) {
+      await db.run(
+        `INSERT INTO activity_log (action_type, description, details) VALUES (?, ?, ?)`,
+        [
+          'purchase_shopping_list',
+          `Purchased ${items.length} shopping list item(s)`,
+          JSON.stringify({
+            inserted_ids: insertedIds,
+            completed_list_ids: completedListIds
+          })
+        ]
+      );
     }
 
     await db.run('COMMIT');
@@ -1167,6 +1363,157 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
   }
   const relativePath = `uploads/${req.file.filename}`;
   res.json({ imageUrl: `/${relativePath}` });
+});
+
+// Serve frontend index.html as fallback for any non-API routes (for production bundle)
+// ----------------------------------------------------
+// ACTIVITY LOG ROUTES
+// ----------------------------------------------------
+app.get('/api/activity-log', async (req, res) => {
+  try {
+    const db = await getDb();
+    const logs = await db.all('SELECT * FROM activity_log ORDER BY created_at DESC, id DESC LIMIT 100');
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/activity-log', async (req, res) => {
+  try {
+    const db = await getDb();
+    await db.run('DELETE FROM activity_log');
+    res.json({ message: 'Activity log cleared successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/activity-log/:id/undo', async (req, res) => {
+  const logId = req.params.id;
+  try {
+    const db = await getDb();
+    await db.run('BEGIN TRANSACTION');
+    
+    const log = await db.get('SELECT * FROM activity_log WHERE id = ?', [logId]);
+    if (!log) {
+      await db.run('ROLLBACK');
+      return res.status(404).json({ error: 'Activity log not found' });
+    }
+    if (log.undone) {
+      await db.run('ROLLBACK');
+      return res.status(400).json({ error: 'This action has already been undone' });
+    }
+    
+    const details = JSON.parse(log.details);
+    
+    if (log.action_type === 'make_recipe' || log.action_type === 'consume_inventory') {
+      const { changed_items } = details;
+      if (changed_items && changed_items.length > 0) {
+        for (const item of changed_items) {
+          const existing = await db.get('SELECT id FROM inventory_items WHERE id = ?', [item.id]);
+          if (existing) {
+            await db.run(
+              `UPDATE inventory_items SET 
+                remaining_servings = ?, 
+                status = ?, 
+                opened_date = ? 
+              WHERE id = ?`,
+              [item.remaining_servings, item.status, item.opened_date, item.id]
+            );
+          } else {
+            // Restore deleted inventory item
+            await db.run(
+              `INSERT OR REPLACE INTO inventory_items (
+                id, product_id, quantity, original_servings, remaining_servings, 
+                price, store_location, storage_location, purchase_date, 
+                expiration_date, opened_date, status, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                item.id, item.product_id, item.quantity, item.original_servings, 
+                item.remaining_servings, item.price, item.store_location, 
+                item.storage_location, item.purchase_date, item.expiration_date, 
+                item.opened_date, item.status, item.created_at
+              ]
+            );
+          }
+        }
+      }
+    } 
+    else if (log.action_type === 'add_inventory') {
+      const { inserted_ids } = details;
+      if (inserted_ids && inserted_ids.length > 0) {
+        const placeholders = inserted_ids.map(() => '?').join(',');
+        await db.run(`DELETE FROM inventory_items WHERE id IN (${placeholders})`, inserted_ids);
+      }
+    } 
+    else if (log.action_type === 'delete_inventory') {
+      const { deleted_item } = details;
+      if (deleted_item) {
+        await db.run(
+          `INSERT OR REPLACE INTO inventory_items (
+            id, product_id, quantity, original_servings, remaining_servings, 
+            price, store_location, storage_location, purchase_date, 
+            expiration_date, opened_date, status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            deleted_item.id, deleted_item.product_id, deleted_item.quantity, 
+            deleted_item.original_servings, deleted_item.remaining_servings, 
+            deleted_item.price, deleted_item.store_location, deleted_item.storage_location, 
+            deleted_item.purchase_date, deleted_item.expiration_date, 
+            deleted_item.opened_date, deleted_item.status, deleted_item.created_at
+          ]
+        );
+      }
+    } 
+    else if (log.action_type === 'update_inventory') {
+      const { item_id, previous_state } = details;
+      if (item_id && previous_state) {
+        await db.run(
+          `UPDATE inventory_items SET
+            quantity = ?,
+            original_servings = ?,
+            remaining_servings = ?,
+            status = ?,
+            opened_date = ?,
+            storage_location = ?,
+            expiration_date = ?
+          WHERE id = ?`,
+          [
+            previous_state.quantity,
+            previous_state.original_servings,
+            previous_state.remaining_servings,
+            previous_state.status,
+            previous_state.opened_date,
+            previous_state.storage_location,
+            previous_state.expiration_date,
+            item_id
+          ]
+        );
+      }
+    } 
+    else if (log.action_type === 'purchase_shopping_list') {
+      const { inserted_ids, completed_list_ids } = details;
+      
+      if (inserted_ids && inserted_ids.length > 0) {
+        const placeholders = inserted_ids.map(() => '?').join(',');
+        await db.run(`DELETE FROM inventory_items WHERE id IN (${placeholders})`, inserted_ids);
+      }
+      
+      if (completed_list_ids && completed_list_ids.length > 0) {
+        const placeholders = completed_list_ids.map(() => '?').join(',');
+        await db.run(`UPDATE shopping_list SET is_completed = 0 WHERE id IN (${placeholders})`, completed_list_ids);
+      }
+    }
+
+    await db.run('UPDATE activity_log SET undone = 1 WHERE id = ?', [logId]);
+    await db.run('COMMIT');
+    res.json({ message: 'Action successfully undone' });
+  } catch (err) {
+    const db = await getDb();
+    try { await db.run('ROLLBACK'); } catch (_) {}
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Serve frontend index.html as fallback for any non-API routes (for production bundle)

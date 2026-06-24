@@ -188,6 +188,21 @@ export async function initDb() {
 
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_storage_locations_name ON storage_locations(name);`);
 
+  // 9. activity_log table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      details TEXT NOT NULL,
+      undone INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at DESC, id DESC);`);
+
+
   // Seed storage locations if empty
   const locCount = await db.get('SELECT COUNT(*) as count FROM storage_locations');
   if (locCount.count === 0) {
