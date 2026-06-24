@@ -611,6 +611,11 @@ export default function Recipes() {
             </div>
           )}
         </>
+      ) : !activeRecipeDetails ? (
+        <div className="flex flex-col items-center justify-center py-20 space-y-4 animate-fade-in">
+          <RotateCw className="h-8 w-8 text-indigo-500 animate-spin" />
+          <p className="text-slate-400 text-sm font-semibold animate-pulse">Loading recipe details...</p>
+        </div>
       ) : (
         /* Detailed Recipe View Screen */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">

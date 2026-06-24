@@ -153,6 +153,9 @@ export function convertUnit(amount, fromUnit, toUnit, product = {}) {
 
   // Scenario C: Servings to standard units (or vice versa)
   if (isFromServings) {
+    if (servingUnit === 'servings') {
+      return amount; // Avoid infinite recursion
+    }
     // 1 serving = servingSize * servingUnit
     // e.g. 2 servings of Milk -> 2 * 240 ml = 480 ml
     const totalInServingUnit = amount * servingSize;
@@ -160,6 +163,9 @@ export function convertUnit(amount, fromUnit, toUnit, product = {}) {
   }
 
   if (isToServings) {
+    if (servingUnit === 'servings') {
+      return amount; // Avoid infinite recursion
+    }
     // Convert current amount to the product's serving_unit first, then divide by serving_size
     // e.g. 480 ml of Milk -> convert to ml (480) -> divide by 240 ml = 2 servings
     const amountInServingUnit = convertUnit(amount, normalizedFrom, servingUnit, product);
