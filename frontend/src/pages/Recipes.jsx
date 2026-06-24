@@ -23,6 +23,7 @@ export default function Recipes() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [toast, setToast] = useState(null); // { message: string, type: 'success' | 'error' }
 
   // Derived state for recipe steps to avoid array out-of-bounds/glitches during transition
   const stepIndexToUse = activeRecipeDetails?.steps && activeStepIndex < activeRecipeDetails.steps.length ? activeStepIndex : 0;
@@ -59,6 +60,14 @@ export default function Recipes() {
     fetchRecipesAndProducts();
   }, []);
 
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   const fetchRecipeDetails = async (id) => {
     try {
       const res = await fetch(`/api/recipes/${id}`);
@@ -90,11 +99,11 @@ export default function Recipes() {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(data.message);
+        setToast({ message: data.message, type: 'success' });
         // Refresh details (which updates ingredient stock status)
         fetchRecipeDetails(activeRecipeDetails.recipe.id);
       } else {
-        alert(`Error making recipe: ${data.error}`);
+        setToast({ message: `Error making recipe: ${data.error}`, type: 'error' });
       }
     } catch (error) {
       console.error('Error consuming recipe ingredients:', error);
@@ -239,14 +248,14 @@ export default function Recipes() {
       setShowAddModal(true);
     } catch (error) {
       console.error('Error fetching recipe details for edit:', error);
-      alert('Failed to load recipe details for editing.');
+      setToast({ message: 'Failed to load recipe details for editing.', type: 'error' });
     }
   };
 
   const handleSaveRecipe = async (e) => {
     e.preventDefault();
     if (!recipeName || recipeIngredients.some(i => !i.product_id || !i.amount)) {
-      alert('Recipe name and ingredients are required.');
+      setToast({ message: 'Recipe name and ingredients are required.', type: 'error' });
       return;
     }
 
@@ -279,7 +288,7 @@ export default function Recipes() {
         fetchRecipesAndProducts();
       } else {
         const err = await res.json();
-        alert(`Error saving recipe: ${err.error}`);
+        setToast({ message: `Error saving recipe: ${err.error}`, type: 'error' });
       }
     } catch (error) {
       console.error('Error saving recipe:', error);
@@ -1112,6 +1121,17 @@ export default function Recipes() {
         }}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[110] flex items-center gap-2.5 px-4 py-3 rounded-xl border backdrop-blur-md shadow-2xl animate-slide-in-right ${
+          toast.type === 'error' 
+            ? 'border-rose-500/30 bg-rose-500/10 text-rose-450' 
+            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-450'
+        }`}>
+          {toast.type === 'error' ? <X className="h-5 w-5 shrink-0" /> : <Check className="h-5 w-5 shrink-0" />}
+          <span className="text-sm font-semibold">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }
