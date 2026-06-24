@@ -535,10 +535,13 @@ export default function Inventory() {
   // Resolve group images after grouping is complete
   groupedInventory.forEach(g => {
     const groupProduct = products.find(p => p.id == g.product_id);
+    console.log(`[GROUP IMAGE RESOLUTION] Group ID: ${g.product_id}, Name: "${g.product_name}"`);
+    console.log('Group product registry entry:', groupProduct);
     
     // 1. Try group product's own image first (parent or standalone)
     if (groupProduct && groupProduct.image_path) {
       g.product_image = groupProduct.image_path;
+      console.log(`  -> Selected Group Product Image: ${g.product_image}`);
       return;
     }
     
@@ -556,6 +559,7 @@ export default function Inventory() {
       for (const item of sortedItems) {
         if (item.product_image) {
           g.product_image = item.product_image;
+          console.log(`  -> Selected Active Inventory Item Image: ${g.product_image}`);
           return;
         }
       }
@@ -563,13 +567,16 @@ export default function Inventory() {
     
     // 3. Try any child product in the registry (even if not in inventory)
     const childProducts = products.filter(p => p.parent_product_id == g.product_id);
+    console.log(`  -> Registry child products for parent ${g.product_id}:`, childProducts);
     const childWithImage = childProducts.find(p => p.image_path);
     if (childWithImage) {
       g.product_image = childWithImage.image_path;
+      console.log(`  -> Selected Registry Child Image: ${g.product_image}`);
       return;
     }
 
     g.product_image = null;
+    console.log('  -> No image found. Using default.');
   });
 
   return (
