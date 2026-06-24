@@ -6,6 +6,29 @@ import {
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 
+const PHYSICAL_UNITS = new Set([
+  'g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl_oz', 'cup', 'pint', 'quart', 'gallon', 'tbsp', 'tsp'
+]);
+
+function normalizeUnit(unit) {
+  if (!unit) return '';
+  const u = unit.toLowerCase().trim();
+  if (u === 'g' || u === 'gram' || u === 'grams') return 'g';
+  if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return 'kg';
+  if (u === 'oz' || u === 'ounce' || u === 'ounces') return 'oz';
+  if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return 'lb';
+  if (u === 'ml' || u === 'milliliter' || u === 'milliliters') return 'ml';
+  if (u === 'l' || u === 'liter' || u === 'liters') return 'l';
+  if (u === 'fl oz' || u === 'fl_oz' || u === 'floz' || u === 'fluid ounce' || u === 'fluid ounces') return 'fl_oz';
+  if (u === 'cup' || u === 'cups' || u === 'c') return 'cup';
+  if (u === 'pint' || u === 'pints' || u === 'pt') return 'pint';
+  if (u === 'quart' || u === 'quarts' || u === 'qt') return 'quart';
+  if (u === 'gallon' || u === 'gallons' || u === 'gal') return 'gallon';
+  if (u === 'tbsp' || u === 'tablespoon' || u === 'tablespoons') return 'tbsp';
+  if (u === 'tsp' || u === 'teaspoon' || u === 'teaspoons') return 'tsp';
+  return u;
+}
+
 export default function Products() {
   const [products, setProducts] = useState([]);
   const [parentProducts, setParentProducts] = useState([]);
@@ -457,6 +480,14 @@ export default function Products() {
                       1 serving = {prod.serving_size} {prod.serving_unit}
                     </span>
                   </div>
+                  {PHYSICAL_UNITS.has(normalizeUnit(prod.serving_unit || prod.default_unit)) && prod.serving_size > 0 && (
+                    <div className="col-span-2 mt-1">
+                      <span className="block text-slate-500 font-medium">Package Capacity</span>
+                      <span className="text-indigo-300 font-semibold">
+                        {(prod.servings_per_package * prod.serving_size).toFixed(1)}{normalizeUnit(prod.serving_unit || prod.default_unit)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 

@@ -36,6 +36,75 @@ function getEffectiveExpiry(item) {
   return printedExpiry;
 }
 
+const PHYSICAL_UNITS = new Set([
+  'g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl_oz', 'cup', 'pint', 'quart', 'gallon', 'tbsp', 'tsp'
+]);
+
+function normalizeUnit(unit) {
+  if (!unit) return '';
+  const u = unit.toLowerCase().trim();
+  if (u === 'g' || u === 'gram' || u === 'grams') return 'g';
+  if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return 'kg';
+  if (u === 'oz' || u === 'ounce' || u === 'ounces') return 'oz';
+  if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return 'lb';
+  if (u === 'ml' || u === 'milliliter' || u === 'milliliters') return 'ml';
+  if (u === 'l' || u === 'liter' || u === 'liters') return 'l';
+  if (u === 'fl oz' || u === 'fl_oz' || u === 'floz' || u === 'fluid ounce' || u === 'fluid ounces') return 'fl_oz';
+  if (u === 'cup' || u === 'cups' || u === 'c') return 'cup';
+  if (u === 'pint' || u === 'pints' || u === 'pt') return 'pint';
+  if (u === 'quart' || u === 'quarts' || u === 'qt') return 'quart';
+  if (u === 'gallon' || u === 'gallons' || u === 'gal') return 'gallon';
+  if (u === 'tbsp' || u === 'tablespoon' || u === 'tablespoons') return 'tbsp';
+  if (u === 'tsp' || u === 'teaspoon' || u === 'teaspoons') return 'tsp';
+  return u;
+}
+
+function formatStock(remainingServings, originalServings, productUnit, servingSize, servingUnit) {
+  if (productUnit === '%') {
+    return `${remainingServings.toFixed(0)}%`;
+  }
+
+  const normUnit = normalizeUnit(servingUnit || productUnit);
+  const isPhysical = PHYSICAL_UNITS.has(normUnit);
+
+  if (isPhysical && servingSize && servingSize > 0) {
+    const remainingPhysical = remainingServings * servingSize;
+    const originalPhysical = originalServings * servingSize;
+
+    const f = (val) => {
+      if (val % 1 === 0) return val.toFixed(0);
+      return val.toFixed(1);
+    };
+
+    return `${f(remainingPhysical)}${normUnit} / ${f(originalPhysical)}${normUnit} (${remainingServings.toFixed(1)} / ${originalServings.toFixed(0)} srv)`;
+  }
+
+  return `${remainingServings.toFixed(1)} / ${originalServings.toFixed(0)} srv`;
+}
+
+function formatStockCompact(remainingServings, originalServings, productUnit, servingSize, servingUnit) {
+  if (productUnit === '%') {
+    return `${remainingServings.toFixed(0)}%`;
+  }
+
+  const normUnit = normalizeUnit(servingUnit || productUnit);
+  const isPhysical = PHYSICAL_UNITS.has(normUnit);
+
+  if (isPhysical && servingSize && servingSize > 0) {
+    const remainingPhysical = remainingServings * servingSize;
+    const originalPhysical = originalServings * servingSize;
+
+    const f = (val) => {
+      if (val % 1 === 0) return val.toFixed(0);
+      return val.toFixed(1);
+    };
+
+    return `${f(remainingPhysical)}${normUnit}/${f(originalPhysical)}${normUnit} (${remainingServings.toFixed(1)}/${originalServings.toFixed(0)} srv)`;
+  }
+
+  return `${remainingServings.toFixed(1)}/${originalServings.toFixed(0)} srv`;
+}
+
 export default function Inventory() {
   const [inventory, setInventory] = useState([]);
   const [products, setProducts] = useState([]);
@@ -637,9 +706,13 @@ export default function Inventory() {
                     <div className="flex justify-between text-xs font-semibold">
                       <span className="text-slate-400">Portions Remaining</span>
                       <span className="text-glow font-bold">
-                        {group.product_unit === '%'
-                          ? `${group.total_remaining_servings.toFixed(0)}%`
-                          : `${group.total_remaining_servings.toFixed(1)} / ${group.total_original_servings.toFixed(0)} srv`}
+                        {formatStock(
+                          group.total_remaining_servings,
+                          group.total_original_servings,
+                          group.product_unit,
+                          group.serving_size,
+                          group.serving_unit
+                        )}
                       </span>
                     </div>
                     
@@ -803,7 +876,7 @@ export default function Inventory() {
                         <span className="text-white font-semibold">{group.package_count}</span>
                       </td>
                       <td className="p-4 min-w-[120px]">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <div className="w-16 h-1.5 rounded bg-slate-800 overflow-hidden shrink-0">
                             <div 
                               className={`h-full rounded ${percentage < 25 ? 'bg-rose-500' : percentage < 50 ? 'bg-amber-500' : 'bg-indigo-500'}`}
@@ -811,9 +884,13 @@ export default function Inventory() {
                             ></div>
                           </div>
                           <span className="font-semibold text-white">
-                            {group.product_unit === '%'
-                              ? `${group.total_remaining_servings.toFixed(0)}%`
-                              : `${group.total_remaining_servings.toFixed(1)}/${group.total_original_servings.toFixed(0)} srv`}
+                            {formatStockCompact(
+                              group.total_remaining_servings,
+                              group.total_original_servings,
+                              group.product_unit,
+                              group.serving_size,
+                              group.serving_unit
+                            )}
                           </span>
                         </div>
                       </td>
@@ -926,6 +1003,30 @@ export default function Inventory() {
                       </option>
                     ))}
                   </select>
+                  {productId && (() => {
+                    const selectedProd = products.find(p => p.id === parseInt(productId));
+                    if (!selectedProd) return null;
+                    const normUnit = normalizeUnit(selectedProd.serving_unit || selectedProd.default_unit);
+                    const isPhysical = PHYSICAL_UNITS.has(normUnit);
+                    return (
+                      <div className="text-[11px] text-slate-400 mt-1.5 flex flex-col gap-0.5 bg-slate-900/40 p-2 rounded-lg border border-slate-800/40">
+                        <div className="flex justify-between">
+                          <span>Package Servings:</span>
+                          <span className="font-semibold text-white">
+                            {selectedProd.servings_per_package} servings / package
+                          </span>
+                        </div>
+                        {isPhysical && selectedProd.serving_size > 0 && (
+                          <div className="flex justify-between">
+                            <span>Package Capacity:</span>
+                            <span className="font-semibold text-indigo-400">
+                              {(selectedProd.servings_per_package * selectedProd.serving_size).toFixed(1)}{normUnit} / package
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Quantity & Storage Location */}
@@ -1104,9 +1205,13 @@ export default function Inventory() {
                             </div>
                           </td>
                           <td className="p-2.5 font-medium text-white">
-                            {editingGroup.product_unit === '%'
-                              ? `${item.remaining_servings.toFixed(0)}%`
-                              : `${item.remaining_servings.toFixed(1)} / ${item.original_servings.toFixed(0)} srv`}
+                            {formatStock(
+                              item.remaining_servings,
+                              item.original_servings,
+                              editingGroup.product_unit,
+                              editingGroup.serving_size,
+                              editingGroup.serving_unit
+                            )}
                           </td>
                           <td className="p-2.5 text-slate-300">{item.storage_location}</td>
                           <td className={`p-2.5 ${expiryColor}`}>{effExpiry || 'No Expiry'}</td>
@@ -1200,9 +1305,19 @@ export default function Inventory() {
                         min="0"
                         required
                       />
-                      <span className="text-[10px] text-slate-500 block">
-                        Max: {(parseFloat(editQuantity) || 1) * (editingGroup.servings_per_package || 1)} servings
-                      </span>
+                      <div className="flex flex-col gap-0.5 mt-1 text-[10px]">
+                        <span className="text-slate-500">
+                          Max: {((parseFloat(editQuantity) || 1) * (editingGroup.servings_per_package || 1)).toFixed(1)} servings
+                          {PHYSICAL_UNITS.has(normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)) && editingGroup.serving_size > 0 && 
+                            ` (${((parseFloat(editQuantity) || 1) * (editingGroup.servings_per_package || 1) * editingGroup.serving_size).toFixed(1)}${normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)})`
+                          }
+                        </span>
+                        {PHYSICAL_UNITS.has(normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)) && editingGroup.serving_size > 0 && (
+                          <span className="text-indigo-400 font-medium">
+                            Equivalent: {((parseFloat(editRemainingServings) || 0) * editingGroup.serving_size).toFixed(1)}{normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
