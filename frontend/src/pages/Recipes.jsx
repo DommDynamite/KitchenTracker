@@ -407,9 +407,22 @@ export default function Recipes() {
     }
   };
 
+  const matchSearchText = (text, query) => {
+    if (!text) return false;
+    if (!query) return true;
+    const lowerText = text.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const queryWords = lowerQuery.split(/\s+/).filter(Boolean);
+    if (queryWords.length === 0) return true;
+    const textWords = lowerText.split(/[^a-z0-9]+/i).filter(Boolean);
+    return queryWords.every(qWord => 
+      textWords.some(tWord => tWord.startsWith(qWord))
+    );
+  };
+
   const filteredRecipes = recipes.filter(r => {
-    const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (r.description && r.description.toLowerCase().includes(searchQuery.toLowerCase()));
+    const searchTargets = [r.name, r.description].filter(Boolean);
+    const matchesSearch = !searchQuery.trim() || searchTargets.some(target => matchSearchText(target, searchQuery));
       
     const matchesIngredient = selectedIngredientIds.length === 0 || 
       selectedIngredientIds.every(id => r.ingredientProductIds && r.ingredientProductIds.includes(id));

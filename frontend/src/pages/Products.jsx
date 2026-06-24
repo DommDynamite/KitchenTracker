@@ -383,12 +383,25 @@ export default function Products() {
     }
   };
 
+  const matchSearchText = (text, query) => {
+    if (!text) return false;
+    if (!query) return true;
+    const lowerText = text.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const queryWords = lowerQuery.split(/\s+/).filter(Boolean);
+    if (queryWords.length === 0) return true;
+    const textWords = lowerText.split(/[^a-z0-9]+/i).filter(Boolean);
+    return queryWords.every(qWord => 
+      textWords.some(tWord => tWord.startsWith(qWord))
+    );
+  };
+
   // Filter products based on search and child product setting
   const filteredProducts = products.filter(p => {
-    const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.brand && p.brand.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (p.barcode && p.barcode.includes(searchQuery));
+    const isBarcodeMatch = p.barcode && p.barcode.includes(searchQuery);
+    const searchTargets = [p.name, p.brand, p.category].filter(Boolean);
+    const isTextMatch = !searchQuery.trim() || searchTargets.some(target => matchSearchText(target, searchQuery));
+    const matchSearch = isBarcodeMatch || isTextMatch;
       
     const matchChild = showChildProducts || !p.parent_product_id;
     

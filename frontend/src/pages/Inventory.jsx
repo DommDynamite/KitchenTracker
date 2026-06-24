@@ -444,10 +444,37 @@ export default function Inventory() {
     return soonest;
   };
 
+  const matchSearchText = (text, query) => {
+    if (!text) return false;
+    if (!query) return true;
+    const lowerText = text.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const queryWords = lowerQuery.split(/\s+/).filter(Boolean);
+    if (queryWords.length === 0) return true;
+    const textWords = lowerText.split(/[^a-z0-9]+/i).filter(Boolean);
+    return queryWords.every(qWord => 
+      textWords.some(tWord => tWord.startsWith(qWord))
+    );
+  };
+
   const filteredInventory = inventory.filter(item => {
-    const matchSearch = item.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (item.product_brand && item.product_brand.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (item.store_location && item.store_location.toLowerCase().includes(searchQuery.toLowerCase()));
+    const product = products.find(p => p.id === item.product_id);
+    const parentProduct = item.parent_product_id ? products.find(p => p.id === item.parent_product_id) : null;
+
+    const searchTargets = [
+      item.product_name,
+      item.product_brand,
+      item.store_location,
+      item.product_category,
+      product?.name,
+      product?.brand,
+      product?.category,
+      parentProduct?.name,
+      parentProduct?.brand,
+      parentProduct?.category
+    ].filter(Boolean);
+
+    const matchSearch = !searchQuery.trim() || searchTargets.some(target => matchSearchText(target, searchQuery));
 
     const matchLocation = selectedLocations.length === 0 || 
       selectedLocations.includes(item.storage_location);
