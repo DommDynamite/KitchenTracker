@@ -36,8 +36,22 @@ export default function Products() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [showChildProducts, setShowChildProducts] = useState(true);
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [showChildProducts, setShowChildProducts] = useState(() => {
+    const val = localStorage.getItem('kitchen_products_show_child');
+    return val !== 'false';
+  });
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem('kitchen_products_view_mode') || 'grid';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('kitchen_products_show_child', showChildProducts);
+  }, [showChildProducts]);
+
+  useEffect(() => {
+    localStorage.setItem('kitchen_products_view_mode', viewMode);
+  }, [viewMode]);
+
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [toast, setToast] = useState(null); // { message: string, type: 'success' | 'error' }
 

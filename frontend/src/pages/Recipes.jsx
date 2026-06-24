@@ -14,8 +14,21 @@ export default function Recipes() {
   const [activeRecipeDetails, setActiveRecipeDetails] = useState(null);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [checkedEquipment, setCheckedEquipment] = useState({});
-  const [stepsViewMode, setStepsViewMode] = useState('slider'); // 'slider' or 'list'
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [stepsViewMode, setStepsViewMode] = useState(() => {
+    return localStorage.getItem('kitchen_recipes_steps_view_mode') || 'slider';
+  });
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem('kitchen_recipes_view_mode') || 'grid';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('kitchen_recipes_steps_view_mode', stepsViewMode);
+  }, [stepsViewMode]);
+
+  useEffect(() => {
+    localStorage.setItem('kitchen_recipes_view_mode', viewMode);
+  }, [viewMode]);
+
   const [selectedIngredientIds, setSelectedIngredientIds] = useState([]);
   const [ingDropdownOpen, setIngDropdownOpen] = useState(false);
   const [editingRecipe, setEditingRecipe] = useState(null);

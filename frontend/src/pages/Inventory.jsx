@@ -114,8 +114,14 @@ export default function Inventory() {
   const [selectedLocations, setSelectedLocations] = useState([]);
   const [filterExpiringSoon, setFilterExpiringSoon] = useState(false);
   const [locDropdownOpen, setLocDropdownOpen] = useState(false);
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem('kitchen_inventory_view_mode') || 'grid';
+  });
   const [consumeAmounts, setConsumeAmounts] = useState({}); // { itemId: val }
+
+  useEffect(() => {
+    localStorage.setItem('kitchen_inventory_view_mode', viewMode);
+  }, [viewMode]);
 
   // Edit Modal State (Grouped)
   const [showEditModal, setShowEditModal] = useState(false);
