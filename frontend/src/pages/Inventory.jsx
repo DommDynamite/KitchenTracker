@@ -464,8 +464,8 @@ export default function Inventory() {
   };
 
   const filteredInventory = inventory.filter(item => {
-    const product = products.find(p => p.id === item.product_id);
-    const parentProduct = item.parent_product_id ? products.find(p => p.id === item.parent_product_id) : null;
+    const product = products.find(p => p.id == item.product_id);
+    const parentProduct = item.parent_product_id ? products.find(p => p.id == item.parent_product_id) : null;
 
     const searchTargets = [
       item.product_name,
@@ -496,7 +496,7 @@ export default function Inventory() {
   filteredInventory.forEach(item => {
     const groupId = item.parent_product_id || item.product_id;
     if (!groups[groupId]) {
-      const parentProduct = item.parent_product_id ? products.find(p => p.id === item.parent_product_id) : null;
+      const parentProduct = item.parent_product_id ? products.find(p => p.id == item.parent_product_id) : null;
 
       groups[groupId] = {
         product_id: groupId,
@@ -534,7 +534,7 @@ export default function Inventory() {
 
   // Resolve group images after grouping is complete
   groupedInventory.forEach(g => {
-    const groupProduct = products.find(p => p.id === g.product_id);
+    const groupProduct = products.find(p => p.id == g.product_id);
     
     // 1. Try group product's own image first (parent or standalone)
     if (groupProduct && groupProduct.image_path) {
@@ -562,7 +562,7 @@ export default function Inventory() {
     }
     
     // 3. Try any child product in the registry (even if not in inventory)
-    const childProducts = products.filter(p => p.parent_product_id === g.product_id);
+    const childProducts = products.filter(p => p.parent_product_id == g.product_id);
     const childWithImage = childProducts.find(p => p.image_path);
     if (childWithImage) {
       g.product_image = childWithImage.image_path;
