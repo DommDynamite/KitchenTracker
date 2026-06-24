@@ -788,7 +788,7 @@ app.post('/api/recipes', async (req, res) => {
     res.status(201).json({ id: recipeId });
   } catch (err) {
     const db = await getDb();
-    await db.run('ROLLBACK');
+    try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
   }
 });
@@ -857,7 +857,7 @@ app.put('/api/recipes/:id', async (req, res) => {
     res.json({ message: 'Recipe updated successfully' });
   } catch (err) {
     const db = await getDb();
-    await db.run('ROLLBACK');
+    try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
   }
 });
@@ -890,6 +890,13 @@ app.post('/api/recipes/:id/make', async (req, res) => {
     await db.run('BEGIN TRANSACTION');
 
     for (const ing of ingredients) {
+      const ingredientProduct = {
+        serving_size: ing.prod_serving_size,
+        serving_unit: ing.prod_serving_unit,
+        default_unit: ing.prod_unit,
+        parent_product_id: ing.parent_product_id
+      };
+
       // Find matching products: either the product itself, or if it is a parent product, its children too.
       const productsGroup = await db.all(`
         SELECT id, serving_size, serving_unit, default_unit FROM products 
@@ -900,7 +907,7 @@ app.post('/api/recipes/:id/make', async (req, res) => {
 
       // Convert recipe required amount to ingredients product base/serving size logic
       // Recipe ingredient amount in ingredient unit -> convert to product default unit
-      const totalAmountNeededInProdUnit = convertUnit(ing.amount, ing.unit, ing.prod_unit, ing);
+      const totalAmountNeededInProdUnit = convertUnit(ing.amount, ing.unit, ing.prod_unit, ingredientProduct);
 
       // Fetch active inventory items for these products, sorted by expiration date (FIFO/expiry first)
       const inventoryItems = await db.all(`
@@ -914,14 +921,14 @@ app.post('/api/recipes/:id/make', async (req, res) => {
       for (const item of inventoryItems) {
         if (amountRemainingToDeduct <= 0) break;
 
-        const itemProduct = productsGroup.find(p => p.id === item.product_id);
+        const itemProduct = productsGroup.find(p => Number(p.id) === Number(item.product_id)) || {};
         const itemServingSize = itemProduct.serving_size || 1.0;
         const itemServingUnit = itemProduct.serving_unit || itemProduct.default_unit;
 
         // How much default unit is left in this item?
         // remaining_servings * serving_size (in serving_unit) = amount in serving_unit
         const remainingInServingUnit = item.remaining_servings * itemServingSize;
-        const remainingInProdUnit = convertUnit(remainingInServingUnit, itemServingUnit, ing.prod_unit, ing);
+        const remainingInProdUnit = convertUnit(remainingInServingUnit, itemServingUnit, ing.prod_unit, ingredientProduct);
 
         if (remainingInProdUnit <= 0) continue;
 
@@ -965,7 +972,7 @@ app.post('/api/recipes/:id/make', async (req, res) => {
     res.json({ message: 'Recipe made! Ingredients consumed successfully.' });
   } catch (err) {
     const db = await getDb();
-    await db.run('ROLLBACK');
+    try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(400).json({ error: err.message });
   }
 });
@@ -1101,7 +1108,7 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
     res.json({ message: 'Purchase logged to inventory!' });
   } catch (err) {
     const db = await getDb();
-    await db.run('ROLLBACK');
+    try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
   }
 });
