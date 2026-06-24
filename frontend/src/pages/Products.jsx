@@ -96,17 +96,6 @@ export default function Products() {
   }, []);
 
   useEffect(() => {
-    if (categories.length > 0 && !editingProduct) {
-      const pantryCat = categories.find(c => c.name.toLowerCase() === 'pantry');
-      if (pantryCat) {
-        setCategory(pantryCat.name);
-      } else {
-        setCategory(categories[0].name);
-      }
-    }
-  }, [categories, editingProduct]);
-
-  useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => {
       setToast(null);
