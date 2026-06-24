@@ -532,6 +532,52 @@ export default function Inventory() {
     g.items.push(item);
   });
 
+  // Resolve group images after grouping is complete
+  groupedInventory.forEach(g => {
+    const parentProduct = g.product_id !== g.items[0]?.product_id ? products.find(p => p.id === g.product_id) : null;
+    
+    // 1. Try parent product's own image first
+    if (parentProduct && parentProduct.image_path) {
+      g.product_image = parentProduct.image_path;
+      return;
+    }
+    
+    // 2. Try active inventory items (opened first, then oldest)
+    if (g.items.length > 0) {
+      const sortedItems = [...g.items].sort((a, b) => {
+        if (a.status === 'opened' && b.status !== 'opened') return -1;
+        if (a.status !== 'opened' && b.status === 'opened') return 1;
+        const aExp = getEffectiveExpiry(a);
+        const bExp = getEffectiveExpiry(b);
+        if (!aExp) return 1;
+        if (!bExp) return -1;
+        return aExp < bExp ? -1 : 1;
+      });
+      for (const item of sortedItems) {
+        if (item.product_image) {
+          g.product_image = item.product_image;
+          return;
+        }
+      }
+    }
+    
+    // 3. Try any child product in the registry (even if not in inventory)
+    const childProducts = products.filter(p => p.parent_product_id === g.product_id);
+    const childWithImage = childProducts.find(p => p.image_path);
+    if (childWithImage) {
+      g.product_image = childWithImage.image_path;
+      return;
+    }
+
+    // 4. Default to standalone product image if no parent
+    if (!parentProduct && g.items[0]?.product_image) {
+      g.product_image = g.items[0].product_image;
+      return;
+    }
+    
+    g.product_image = null;
+  });
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -678,27 +724,7 @@ export default function Inventory() {
               ? (group.total_remaining_servings / group.total_original_servings) * 100 
               : 0;
 
-            // Resolve active product image (opened first, soonest expiry first)
-            const getActiveProductImage = (groupItems) => {
-              if (!groupItems || groupItems.length === 0) return null;
-              const sortedItems = [...groupItems].sort((a, b) => {
-                if (a.status === 'opened' && b.status !== 'opened') return -1;
-                if (a.status !== 'opened' && b.status === 'opened') return 1;
-                const aExp = getEffectiveExpiry(a);
-                const bExp = getEffectiveExpiry(b);
-                if (!aExp) return 1;
-                if (!bExp) return -1;
-                return aExp < bExp ? -1 : 1;
-              });
-              for (const item of sortedItems) {
-                if (item.product_image) {
-                  return item.product_image;
-                }
-              }
-              return null;
-            };
-
-            const displayedImage = group.product_image || getActiveProductImage(group.items);
+            const displayedImage = group.product_image;
             
             // Border color based on urgency
             let borderClass = 'border-slate-800/80';
@@ -898,27 +924,7 @@ export default function Inventory() {
                     ? (group.total_remaining_servings / group.total_original_servings) * 100 
                     : 0;
 
-                  // Resolve active product image (opened first, soonest expiry first)
-                  const getActiveProductImage = (groupItems) => {
-                    if (!groupItems || groupItems.length === 0) return null;
-                    const sortedItems = [...groupItems].sort((a, b) => {
-                      if (a.status === 'opened' && b.status !== 'opened') return -1;
-                      if (a.status !== 'opened' && b.status === 'opened') return 1;
-                      const aExp = getEffectiveExpiry(a);
-                      const bExp = getEffectiveExpiry(b);
-                      if (!aExp) return 1;
-                      if (!bExp) return -1;
-                      return aExp < bExp ? -1 : 1;
-                    });
-                    for (const item of sortedItems) {
-                      if (item.product_image) {
-                        return item.product_image;
-                      }
-                    }
-                    return null;
-                  };
-
-                  const displayedImage = group.product_image || getActiveProductImage(group.items);
+                  const displayedImage = group.product_image;
                   
                   let alertColor = 'text-slate-300';
                   if (urgency === 'expired') alertColor = 'text-rose-400 font-bold';
