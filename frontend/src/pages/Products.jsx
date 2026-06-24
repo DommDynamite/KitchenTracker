@@ -422,6 +422,17 @@ export default function Products() {
     return matchSearch && matchChild;
   });
 
+  const getProductImage = (prod) => {
+    if (prod.image_path) return prod.image_path;
+    const children = products.filter(p => p.parent_product_id == prod.id);
+    const childWithImage = children.find(p => p.image_path);
+    if (childWithImage) {
+      console.log(`[PRODUCTS REGISTRY IMAGE FALLBACK] Parent product without image "${prod.name}" (ID: ${prod.id}) adopting image from child "${childWithImage.name}" (ID: ${childWithImage.id}): ${childWithImage.image_path}`);
+      return childWithImage.image_path;
+    }
+    return null;
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -516,10 +527,9 @@ export default function Products() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProducts.map(prod => (
             <div key={prod.id} className="glass-panel rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group">
-              {/* Image Preview background or banner */}
-              {prod.image_path && (
+              {getProductImage(prod) && (
                 <div className="absolute right-0 top-0 w-24 h-24 opacity-20 pointer-events-none">
-                  <img src={prod.image_path} alt="" className="w-full h-full object-cover rounded-bl-full" />
+                  <img src={getProductImage(prod)} alt="" className="w-full h-full object-cover rounded-bl-full" />
                 </div>
               )}
               
@@ -635,8 +645,8 @@ export default function Products() {
                     <tr key={prod.id} className="hover:bg-slate-900/30 transition-colors">
                       <td className="p-4">
                         <div className="flex items-center gap-3">
-                          {prod.image_path ? (
-                            <img src={prod.image_path} alt="" className="h-10 w-10 object-cover rounded-lg border border-slate-800 shrink-0" />
+                          {getProductImage(prod) ? (
+                            <img src={getProductImage(prod)} alt="" className="h-10 w-10 object-cover rounded-lg border border-slate-800 shrink-0" />
                           ) : (
                             <div className="h-10 w-10 rounded-lg border border-slate-800 bg-slate-900/50 flex items-center justify-center shrink-0">
                               <Package className="h-5 w-5 text-slate-500" />
