@@ -5,6 +5,7 @@ import {
   LayoutGrid, List, Edit2, Package, ChevronDown
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
+import InventoryModal from '../components/InventoryModal';
 
 function addDays(dateStr, days) {
   const parts = dateStr.split('-');
@@ -133,14 +134,6 @@ export default function Inventory() {
   const [editExpirationDate, setEditExpirationDate] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  // New purchase Form State
-  const [productId, setProductId] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [price, setPrice] = useState('');
-  const [storeLocation, setStoreLocation] = useState('');
-  const [storageLocation, setStorageLocation] = useState('Pantry');
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
-  const [expirationDate, setExpirationDate] = useState('');
   const [storeSuggestions, setStoreSuggestions] = useState([]);
   const [locations, setLocations] = useState([]);
 
@@ -192,7 +185,6 @@ export default function Inventory() {
         if (data.length > 0) {
           const hasPantry = data.find(l => l.name.toLowerCase() === 'pantry');
           const defaultLoc = hasPantry ? hasPantry.name : data[0].name;
-          setStorageLocation(defaultLoc);
           setEditStorageLocation(defaultLoc);
         }
       }
@@ -259,59 +251,12 @@ export default function Inventory() {
   }, []);
 
   const handleOpenAdd = () => {
-    const firstProdId = products.length > 0 ? products[0].id : '';
-    setProductId(firstProdId);
-    setQuantity(1);
-    setPrice('');
-    setStoreLocation('');
-    
-    let defaultLoc = 'Pantry';
-    if (firstProdId) {
-      const firstProd = products.find(p => p.id === firstProdId);
-      if (firstProd) {
-        defaultLoc = getDefaultStorageLocation(firstProd.category);
-      }
-    }
-    setStorageLocation(defaultLoc);
-    setPurchaseDate(new Date().toISOString().split('T')[0]);
-    setExpirationDate('');
     setShowModal(true);
   };
 
-  const handleAddPurchase = async (e) => {
-    e.preventDefault();
-    if (!productId || !quantity || !purchaseDate) {
-      alert('Product, Quantity, and Purchase Date are required.');
-      return;
-    }
-
-    const payload = {
-      product_id: parseInt(productId),
-      quantity: parseFloat(quantity),
-      price: price ? parseFloat(price) : null,
-      store_location: storeLocation || null,
-      storage_location: storageLocation,
-      purchase_date: purchaseDate,
-      expiration_date: expirationDate || null
-    };
-
-    try {
-      const res = await fetch('/api/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        setShowModal(false);
-        fetchInventoryAndProducts();
-        fetchStores();
-      } else {
-        const err = await res.json();
-        alert(`Error: ${err.error}`);
-      }
-    } catch (error) {
-      console.error('Error logging purchase:', error);
-    }
+  const handleInventorySaved = () => {
+    fetchInventoryAndProducts();
+    fetchStores();
   };
 
   // Consume servings quick-click (product level FIFO)
@@ -532,44 +477,67 @@ export default function Inventory() {
     g.items.push(item);
   });
 
-  // Resolve group images after grouping is complete
+  // Resolve group properties (images and parent product inherited fields) after grouping is complete
   groupedInventory.forEach(g => {
     const groupProduct = products.find(p => p.id == g.product_id);
     
-    // 1. Try group product's own image first (parent or standalone)
-    if (groupProduct && groupProduct.image_path) {
-      g.product_image = groupProduct.image_path;
-      return;
-    }
-    
-    // 2. Try active inventory items (opened first, then oldest)
+    // 1. Sort active inventory items (opened first, then oldest expiration/purchase date)
+    let activeItemForInheritance = null;
     if (g.items.length > 0) {
       const sortedItems = [...g.items].sort((a, b) => {
         if (a.status === 'opened' && b.status !== 'opened') return -1;
         if (a.status !== 'opened' && b.status === 'opened') return 1;
         const aExp = getEffectiveExpiry(a);
         const bExp = getEffectiveExpiry(b);
-        if (!aExp) return 1;
-        if (!bExp) return -1;
-        return aExp < bExp ? -1 : 1;
+        if (!aExp && bExp) return 1;
+        if (aExp && !bExp) return -1;
+        if (aExp && bExp) {
+          return aExp < bExp ? -1 : aExp > bExp ? 1 : 0;
+        }
+        return a.purchase_date < b.purchase_date ? -1 : a.purchase_date > b.purchase_date ? 1 : 0;
       });
-      for (const item of sortedItems) {
-        if (item.product_image) {
-          g.product_image = item.product_image;
-          return;
+      activeItemForInheritance = sortedItems[0];
+
+      // Resolve product image fallback
+      if (groupProduct && groupProduct.image_path) {
+        g.product_image = groupProduct.image_path;
+      } else {
+        const itemWithImage = sortedItems.find(item => item.product_image);
+        if (itemWithImage) {
+          g.product_image = itemWithImage.product_image;
+        } else {
+          const childProducts = products.filter(p => p.parent_product_id == g.product_id);
+          const childWithImage = childProducts.find(p => p.image_path);
+          g.product_image = childWithImage ? childWithImage.image_path : null;
         }
       }
-    }
-    
-    // 3. Try any child product in the registry (even if not in inventory)
-    const childProducts = products.filter(p => p.parent_product_id == g.product_id);
-    const childWithImage = childProducts.find(p => p.image_path);
-    if (childWithImage) {
-      g.product_image = childWithImage.image_path;
-      return;
+    } else {
+      g.product_image = groupProduct ? groupProduct.image_path : null;
     }
 
-    g.product_image = null;
+    // 2. If it is a parent product, inherit servings/calories/shelf life from active child item,
+    // or fallback to registry child products.
+    if (groupProduct && groupProduct.is_parent === 1) {
+      let source = null;
+      if (activeItemForInheritance) {
+        // Find registry child product matching the active item's product_id
+        source = products.find(p => p.id == activeItemForInheritance.product_id);
+      }
+      
+      if (!source) {
+        const childProducts = products.filter(p => p.parent_product_id == g.product_id);
+        source = childProducts.find(c => (c.serving_size > 0 && c.serving_size !== 1.0) || c.calories_per_serving !== null) || childProducts[0];
+      }
+
+      if (source) {
+        g.servings_per_package = source.servings_per_package;
+        g.serving_size = source.serving_size;
+        g.serving_unit = source.serving_unit;
+        g.calories_per_serving = source.calories_per_serving;
+        g.use_by_days_after_opening = source.use_by_days_after_opening;
+        g.default_consumption = source.default_consumption;
+      }
+    }
   });
 
   return (
@@ -1040,185 +1008,15 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Log Purchase Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-md rounded-2xl glass-panel p-6 space-y-4 my-8 relative animate-scale-up">
-            <button 
-              onClick={() => setShowModal(false)}
-              className="absolute right-4 top-4 p-1 rounded-full text-slate-400 hover:text-white"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <ShoppingBag className="h-5 w-5 text-indigo-400" />
-              Log Grocery Purchase
-            </h2>
-
-            {products.length === 0 ? (
-              <div className="text-center py-6 text-slate-400 space-y-2">
-                <p>No products registered yet. Please create a product barcode registry entry first.</p>
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 rounded bg-indigo-600 text-white text-xs font-semibold"
-                >
-                  Close
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleAddPurchase} className="space-y-4 text-sm text-slate-200">
-                {/* Select Product */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-400">Select Product *</label>
-                  <select 
-                    value={productId} 
-                    onChange={(e) => {
-                      const newProdId = e.target.value;
-                      setProductId(newProdId);
-                      if (newProdId) {
-                        const selectedProd = products.find(p => p.id === parseInt(newProdId));
-                        if (selectedProd) {
-                          setStorageLocation(getDefaultStorageLocation(selectedProd.category));
-                        }
-                      }
-                    }}
-                    className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
-                    required
-                  >
-                    <option value="">-- Choose Product --</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} {p.brand ? `(${p.brand})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {productId && (() => {
-                    const selectedProd = products.find(p => p.id === parseInt(productId));
-                    if (!selectedProd) return null;
-                    const normUnit = normalizeUnit(selectedProd.serving_unit || selectedProd.default_unit);
-                    const isPhysical = PHYSICAL_UNITS.has(normUnit);
-                    return (
-                      <div className="text-[11px] text-slate-400 mt-1.5 flex flex-col gap-0.5 bg-slate-900/40 p-2 rounded-lg border border-slate-800/40">
-                        <div className="flex justify-between">
-                          <span>Package Servings:</span>
-                          <span className="font-semibold text-white">
-                            {selectedProd.servings_per_package} servings / package
-                          </span>
-                        </div>
-                        {isPhysical && selectedProd.serving_size > 0 && (
-                          <div className="flex justify-between">
-                            <span>Package Capacity:</span>
-                            <span className="font-semibold text-indigo-400">
-                              {(selectedProd.servings_per_package * selectedProd.serving_size).toFixed(1)}{normUnit} / package
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Quantity & Storage Location */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Quantity (Packages) *</label>
-                    <input 
-                      type="number" 
-                      step="any"
-                      value={quantity} 
-                      onChange={(e) => setQuantity(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input"
-                      min="0.1"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Storage Location</label>
-                    <select 
-                      value={storageLocation} 
-                      onChange={(e) => setStorageLocation(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
-                    >
-                      {locations.map(loc => (
-                        <option key={loc.id} value={loc.name}>{loc.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Price & Store Location */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Price Paid ($)</label>
-                    <input 
-                      type="number" 
-                      step="any"
-                      placeholder="e.g. 3.49"
-                      value={price} 
-                      onChange={(e) => setPrice(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input"
-                      min="0"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Store Purchased From</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. Aldi"
-                      value={storeLocation} 
-                      onChange={(e) => setStoreLocation(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input"
-                      list="store-suggestions"
-                    />
-                  </div>
-                </div>
-
-                {/* Purchase & Expiration Dates */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Purchase Date *</label>
-                    <input 
-                      type="date" 
-                      value={purchaseDate} 
-                      onChange={(e) => setPurchaseDate(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Expiration Date</label>
-                    <input 
-                      type="date" 
-                      value={expirationDate} 
-                      onChange={(e) => setExpirationDate(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input"
-                    />
-                  </div>
-                </div>
-
-                {/* Save actions */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-                  <button 
-                    type="button"
-                    onClick={() => setShowModal(false)}
-                    className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white text-xs font-semibold shadow-lg hover:opacity-90 transition-opacity"
-                  >
-                    <Check className="h-4 w-4" /> Save Purchase
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
+      <InventoryModal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        onSave={handleInventorySaved}
+        products={products}
+        locations={locations}
+        categories={categories}
+        storeSuggestions={storeSuggestions}
+      />
 
       {/* Edit Inventory Item Modal */}
       {showEditModal && editingGroup && (
@@ -1476,12 +1274,7 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Autocomplete Suggestions Datalist */}
-      <datalist id="store-suggestions">
-        {storeSuggestions.map((store, idx) => (
-          <option key={idx} value={store} />
-        ))}
-      </datalist>
+
 
       <ConfirmModal 
         isOpen={!!deleteConfirm}

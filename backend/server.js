@@ -46,6 +46,64 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // ----------------------------------------------------
+// PRODUCT INHERITANCE HELPER
+// ----------------------------------------------------
+async function enrichProductsWithInheritedProperties(db, products) {
+  if (!products) return products;
+  const isArray = Array.isArray(products);
+  const productsList = isArray ? products : [products];
+
+  for (const prod of productsList) {
+    if (prod.is_parent == 1) {
+      // Find all child products in the registry
+      const children = await db.all('SELECT * FROM products WHERE parent_product_id = ?', [prod.id]);
+      if (children.length > 0) {
+        const childIds = children.map(c => c.id);
+        
+        // Find active inventory items for these children
+        const activeItems = await db.all(`
+          SELECT ii.*, p.serving_size, p.serving_unit, p.servings_per_package, p.calories_per_serving, 
+                 p.use_by_days_after_opening, p.default_consumption
+          FROM inventory_items ii
+          JOIN products p ON ii.product_id = p.id
+          WHERE ii.product_id IN (${childIds.map(() => '?').join(',')}) AND ii.status IN ('unopened', 'opened')
+        `, childIds);
+
+        let source = null;
+
+        if (activeItems.length > 0) {
+          activeItems.sort((a, b) => {
+            if (a.status === 'opened' && b.status !== 'opened') return -1;
+            if (a.status !== 'opened' && b.status === 'opened') return 1;
+            
+            if (a.expiration_date && !b.expiration_date) return -1;
+            if (!a.expiration_date && b.expiration_date) return 1;
+            if (a.expiration_date && b.expiration_date) {
+              return a.expiration_date < b.expiration_date ? -1 : a.expiration_date > b.expiration_date ? 1 : 0;
+            }
+            return a.purchase_date < b.purchase_date ? -1 : a.purchase_date > b.purchase_date ? 1 : 0;
+          });
+          source = activeItems[0];
+        } else {
+          source = children.find(c => (c.serving_size > 0 && c.serving_size !== 1.0) || c.calories_per_serving !== null) || children[0];
+        }
+
+        if (source) {
+          prod.servings_per_package = source.servings_per_package;
+          prod.serving_size = source.serving_size;
+          prod.serving_unit = source.serving_unit;
+          prod.calories_per_serving = source.calories_per_serving;
+          prod.use_by_days_after_opening = source.use_by_days_after_opening;
+          prod.default_consumption = source.default_consumption;
+        }
+      }
+    }
+  }
+
+  return isArray ? productsList : productsList[0];
+}
+
+// ----------------------------------------------------
 // DYNAMIC STOCK LEVEL HELPER
 // ----------------------------------------------------
 async function getStockLevels() {
@@ -56,6 +114,8 @@ async function getStockLevels() {
     SELECT * FROM products 
     WHERE parent_product_id IS NULL OR parent_product_id = ''
   `);
+
+  await enrichProductsWithInheritedProperties(db, products);
 
   const activeInventory = await db.all(`
     SELECT ii.*, p.default_unit as prod_unit, p.serving_size as prod_serving_size, 
@@ -137,6 +197,7 @@ app.get('/api/products', async (req, res) => {
       `);
     }
     
+    await enrichProductsWithInheritedProperties(db, products);
     res.json(products);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -151,6 +212,7 @@ app.get('/api/products/barcode/:barcode', async (req, res) => {
     if (!product) {
       return res.status(404).json({ message: 'Product not found for barcode' });
     }
+    await enrichProductsWithInheritedProperties(db, product);
     res.json(product);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -182,6 +244,7 @@ app.get('/api/products/:id', async (req, res) => {
       ORDER BY ii.expiration_date ASC, ii.purchase_date ASC
     `, productIds);
 
+    await enrichProductsWithInheritedProperties(db, product);
     res.json({ product, children, inventory });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -193,12 +256,20 @@ app.post('/api/products', async (req, res) => {
   const {
     name, barcode, parent_product_id, brand, category,
     default_unit, servings_per_package, serving_size, serving_unit, minimum_stock, default_consumption, use_by_days_after_opening, image_path,
-    package_type, calories_per_serving
+    package_type, calories_per_serving, is_parent
   } = req.body;
 
   if (!name || !default_unit) {
     return res.status(400).json({ error: 'Name and default unit are required' });
   }
+
+  const isParentVal = (is_parent === 1 || is_parent === true) ? 1 : 0;
+  const parentId = isParentVal ? null : (parent_product_id || null);
+  const servingsPkg = isParentVal ? 1.0 : (parseFloat(servings_per_package) || 1.0);
+  const sSize = isParentVal ? 1.0 : (parseFloat(serving_size) || 1.0);
+  const sUnit = isParentVal ? default_unit : (serving_unit || default_unit);
+  const useByDays = isParentVal ? null : (use_by_days_after_opening !== undefined ? use_by_days_after_opening : null);
+  const calPerSrv = isParentVal ? null : (calories_per_serving !== undefined ? calories_per_serving : null);
 
   try {
     const db = await getDb();
@@ -206,13 +277,13 @@ app.post('/api/products', async (req, res) => {
       `INSERT INTO products (
         name, barcode, parent_product_id, brand, category,
         default_unit, servings_per_package, serving_size, serving_unit, minimum_stock, default_consumption, use_by_days_after_opening, image_path,
-        package_type, calories_per_serving
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        package_type, calories_per_serving, is_parent
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        name, barcode || null, parent_product_id || null, brand || null, category || null,
-        default_unit, servings_per_package || 1.0, serving_size || 1.0, serving_unit || default_unit,
-        minimum_stock || 0.0, default_consumption || 1.0, use_by_days_after_opening !== undefined ? use_by_days_after_opening : null, image_path || null,
-        package_type || 'package', calories_per_serving !== undefined ? calories_per_serving : null
+        name, barcode || null, parentId, brand || null, category || null,
+        default_unit, servingsPkg, sSize, sUnit,
+        minimum_stock || 0.0, default_consumption || 1.0, useByDays, image_path || null,
+        package_type || 'package', calPerSrv, isParentVal
       ]
     );
     res.status(201).json({ id: result.lastID });
@@ -226,8 +297,16 @@ app.put('/api/products/:id', async (req, res) => {
   const {
     name, barcode, parent_product_id, brand, category,
     default_unit, servings_per_package, serving_size, serving_unit, minimum_stock, default_consumption, use_by_days_after_opening, image_path,
-    package_type, calories_per_serving
+    package_type, calories_per_serving, is_parent
   } = req.body;
+
+  const isParentVal = (is_parent === 1 || is_parent === true) ? 1 : 0;
+  const parentId = isParentVal ? null : (parent_product_id || null);
+  const servingsPkg = isParentVal ? 1.0 : (parseFloat(servings_per_package) || 1.0);
+  const sSize = isParentVal ? 1.0 : (parseFloat(serving_size) || 1.0);
+  const sUnit = isParentVal ? default_unit : (serving_unit || default_unit);
+  const useByDays = isParentVal ? null : (use_by_days_after_opening !== undefined ? use_by_days_after_opening : null);
+  const calPerSrv = isParentVal ? null : (calories_per_serving !== undefined ? calories_per_serving : null);
 
   try {
     const db = await getDb();
@@ -235,13 +314,12 @@ app.put('/api/products/:id', async (req, res) => {
       `UPDATE products SET 
         name = ?, barcode = ?, parent_product_id = ?, brand = ?, category = ?,
         default_unit = ?, servings_per_package = ?, serving_size = ?, serving_unit = ?, minimum_stock = ?, default_consumption = ?, use_by_days_after_opening = ?, image_path = ?,
-        package_type = ?, calories_per_serving = ?
+        package_type = ?, calories_per_serving = ?, is_parent = ?
       WHERE id = ?`,
       [
-        name, barcode || null, parent_product_id || null, brand || null, category || null,
-        default_unit, servings_per_package, serving_size, serving_unit, minimum_stock, default_consumption || 1.0,
-        use_by_days_after_opening !== undefined ? use_by_days_after_opening : null, image_path,
-        package_type || 'package', calories_per_serving !== undefined ? calories_per_serving : null,
+        name, barcode || null, parentId, brand || null, category || null,
+        default_unit, servingsPkg, sSize, sUnit, minimum_stock, default_consumption || 1.0,
+        useByDays, image_path, package_type || 'package', calPerSrv, isParentVal,
         req.params.id
       ]
     );
@@ -893,14 +971,36 @@ app.get('/api/recipes/:id', async (req, res) => {
     const steps = await db.all('SELECT * FROM recipe_steps WHERE recipe_id = ? ORDER BY step_number ASC', [recipe.id]);
     const equipment = await db.all('SELECT * FROM recipe_equipment WHERE recipe_id = ? ORDER BY name ASC', [recipe.id]);
     
-    // Fetch recipe ingredients along with product properties
+    // Fetch recipe ingredients
     const ingredients = await db.all(`
-      SELECT ri.*, p.name as product_name, p.default_unit as prod_unit, p.serving_size as prod_serving_size, 
-             p.serving_unit as prod_serving_unit, p.parent_product_id, p.calories_per_serving, p.servings_per_package, p.package_type
+      SELECT ri.*
       FROM recipe_ingredients ri
-      JOIN products p ON ri.product_id = p.id
       WHERE ri.recipe_id = ?
     `, [recipe.id]);
+
+    if (ingredients.length > 0) {
+      const productIds = ingredients.map(i => i.product_id);
+      const referencedProducts = await db.all(`
+        SELECT * FROM products WHERE id IN (${productIds.map(() => '?').join(',')})
+      `, productIds);
+
+      await enrichProductsWithInheritedProperties(db, referencedProducts);
+
+      // Map back to ingredients
+      ingredients.forEach(ing => {
+        const p = referencedProducts.find(prod => prod.id === ing.product_id);
+        if (p) {
+          ing.product_name = p.name;
+          ing.prod_unit = p.default_unit;
+          ing.prod_serving_size = p.serving_size;
+          ing.prod_serving_unit = p.serving_unit;
+          ing.parent_product_id = p.parent_product_id;
+          ing.calories_per_serving = p.calories_per_serving;
+          ing.servings_per_package = p.servings_per_package;
+          ing.package_type = p.package_type;
+        }
+      });
+    }
 
     let totalCalories = 0;
 
@@ -1145,7 +1245,7 @@ app.post('/api/recipes/:id/make', async (req, res) => {
 
       // Find matching products: either the product itself, or if it is a parent product, its children too.
       const productsGroup = await db.all(`
-        SELECT id, serving_size, serving_unit, default_unit FROM products 
+        SELECT id, serving_size, serving_unit, default_unit, servings_per_package, package_type FROM products 
         WHERE parent_product_id = ? OR id = ?
       `, [ing.product_id, ing.product_id]);
       
@@ -1174,7 +1274,7 @@ app.post('/api/recipes/:id/make', async (req, res) => {
         // How much default unit is left in this item?
         // remaining_servings * serving_size (in serving_unit) = amount in serving_unit
         const remainingInServingUnit = item.remaining_servings * itemServingSize;
-        const remainingInProdUnit = convertUnit(remainingInServingUnit, itemServingUnit, ing.prod_unit, ingredientProduct);
+        const remainingInProdUnit = convertUnit(remainingInServingUnit, itemServingUnit, ing.prod_unit, itemProduct);
 
         if (remainingInProdUnit <= 0) continue;
 
@@ -1367,8 +1467,9 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
     const completedListIds = [];
 
     for (const item of items) {
-      const product = await db.get('SELECT servings_per_package FROM products WHERE id = ?', [item.product_id]);
+      let product = await db.get('SELECT * FROM products WHERE id = ?', [item.product_id]);
       if (!product) continue;
+      await enrichProductsWithInheritedProperties(db, product);
 
       const qty = parseFloat(item.quantity);
       const numFullPackages = Math.floor(qty);

@@ -5,6 +5,8 @@ import {
   Camera, CameraOff, AlertTriangle, Check, X, 
   RotateCw, Plus, ShoppingBag, Database, ArrowRight 
 } from 'lucide-react';
+import ProductModal from '../components/ProductModal';
+import InventoryModal from '../components/InventoryModal';
 
 export default function Scan() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -25,30 +27,10 @@ export default function Scan() {
   const scannerRef = useRef(null);
   const html5QrcodeRef = useRef(null);
 
-  // New Product Form State (for 'create_product' step)
-  const [prodName, setProdName] = useState('');
-  const [prodBrand, setProdBrand] = useState('');
-  const [prodCategory, setProdCategory] = useState('Pantry');
-  const [prodUnit, setProdUnit] = useState('pieces');
-  const [prodSrvPkg, setProdSrvPkg] = useState(1);
-  const [prodSrvSize, setProdSrvSize] = useState(1);
-  const [prodSrvUnit, setProdSrvUnit] = useState('pieces');
-  const [prodMinStock, setProdMinStock] = useState(0);
-  const [prodUseByDays, setProdUseByDays] = useState('');
-  const [prodPackageType, setProdPackageType] = useState('package');
-  const [prodCalories, setProdCalories] = useState('');
-
-  // Smart Package Content and Calorie form states
-  const [capacityValue, setCapacityValue] = useState(1);
-  const [capacityUnit, setCapacityUnit] = useState('pieces');
-  const [calorieMode, setCalorieMode] = useState('per_unit');
-  const [caloriesValue, setCaloriesValue] = useState('');
-  const [hasCustomServing, setHasCustomServing] = useState(false);
-  const [servingSizeValue, setServingSizeValue] = useState(1);
-  const [servingsPerPackageValue, setServingsPerPackageValue] = useState(1);
-  const [servingUnit, setServingUnit] = useState('pieces');
-  
   const [categories, setCategories] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [storeSuggestions, setStoreSuggestions] = useState([]);
 
   const fetchCategories = async () => {
     try {
@@ -62,61 +44,6 @@ export default function Scan() {
     }
   };
 
-  const getDefaultStorageLocation = (catName) => {
-    let defaultLoc = 'Pantry';
-    if (catName) {
-      const matchedCategory = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
-      if (matchedCategory && matchedCategory.default_storage_location) {
-        const matchedLoc = locations.find(l => l.name.toLowerCase() === matchedCategory.default_storage_location.toLowerCase());
-        if (matchedLoc) {
-          return matchedLoc.name;
-        }
-      }
-      
-      const isCold = catName === 'Dairy' || catName === 'Meat & Seafood';
-      const targetSearch = isCold ? 'fridge' : 'pantry';
-      const matched = locations.find(l => l.name.toLowerCase() === targetSearch);
-      if (matched) {
-        defaultLoc = matched.name;
-      } else if (locations.length > 0) {
-        defaultLoc = locations[0].name;
-      }
-    } else if (locations.length > 0) {
-      defaultLoc = locations[0].name;
-    }
-    return defaultLoc;
-  };
-
-  const getTrackingUnitOptions = () => {
-    const options = [];
-    if (capacityUnit) {
-      options.push({ value: capacityUnit, label: `${capacityUnit} (physical units)` });
-    }
-    const pkgPlural = getPluralProdPackageType(prodPackageType);
-    if (pkgPlural && pkgPlural !== capacityUnit) {
-      options.push({ value: pkgPlural, label: `${pkgPlural} (package units)` });
-    }
-    return options;
-  };
-
-  useEffect(() => {
-    const opts = getTrackingUnitOptions().map(o => o.value);
-    if (opts.length > 0 && !opts.includes(prodUnit)) {
-      setProdUnit(opts[0]);
-    }
-  }, [capacityUnit, prodPackageType]);
-
-  const [storeSuggestions, setStoreSuggestions] = useState([]);
-
-  // New Inventory Form State (for 'add_inventory' step)
-  const [quantity, setQuantity] = useState(1);
-  const [price, setPrice] = useState('');
-  const [storeLocation, setStoreLocation] = useState('');
-  const [storageLocation, setStorageLocation] = useState('Pantry');
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
-  const [expirationDate, setExpirationDate] = useState('');
-  const [locations, setLocations] = useState([]);
-
   const fetchLocations = async () => {
     try {
       const res = await fetch('/api/locations');
@@ -126,6 +53,18 @@ export default function Scan() {
       }
     } catch (err) {
       console.error('Failed to fetch locations:', err);
+    }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch('/api/products');
+      if (res.ok) {
+        const data = await res.json();
+        setProducts(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch products:', err);
     }
   };
 
@@ -197,6 +136,7 @@ export default function Scan() {
     fetchStores();
     fetchLocations();
     fetchCategories();
+    fetchProducts();
 
     // Cleanup scanner on unmount
     return () => {
@@ -205,34 +145,6 @@ export default function Scan() {
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (locations.length > 0 && !storageLocation) {
-      const hasPantry = locations.find(l => l.name.toLowerCase() === 'pantry');
-      setStorageLocation(hasPantry ? hasPantry.name : locations[0].name);
-    }
-  }, [locations, storageLocation]);
-
-  useEffect(() => {
-    if (categories.length > 0) {
-      const pantryCat = categories.find(c => c.name.toLowerCase() === 'pantry');
-      if (pantryCat) {
-        setProdCategory(pantryCat.name);
-      } else {
-        setProdCategory(categories[0].name);
-      }
-    }
-  }, [categories]);
-
-  const getPluralProdPackageType = (type) => {
-    if (!type) return 'packages';
-    const t = type.toLowerCase();
-    if (t === 'package') return 'packages';
-    if (t === 'box') return 'boxes';
-    if (t === 'pouch') return 'pouches';
-    if (t === 'jar') return 'jars';
-    return `${t}s`;
-  };
 
   const handleBarcodeFound = async (barcode) => {
     setScannedBarcode(barcode);
@@ -245,38 +157,10 @@ export default function Scan() {
         // Product is known
         const product = await res.json();
         setResolvedProduct(product);
-        
-        // Reset inventory logging fields
-        setQuantity(1);
-        setPrice('');
-        setStoreLocation('');
-        
-        setStorageLocation(getDefaultStorageLocation(product.category));
-        setExpirationDate('');
-        
         setStep('add_inventory');
       } else {
-        // Product is unknown, redirect to product creation wizard
-        setProdName('');
-        setProdBrand('');
-        setProdCategory('Pantry');
-        setProdUnit('pieces');
-        setProdSrvPkg(1);
-        setProdSrvSize(1);
-        setProdSrvUnit('pieces');
-        setProdMinStock(0);
-        setProdUseByDays('');
-        setProdPackageType('package');
-        setProdCalories('');
-
-        // Smart package states reset
-        setCapacityValue(1);
-        setCapacityUnit('pieces');
-        setCalorieMode('per_unit');
-        setCaloriesValue('');
-        setHasCustomServing(false);
-        setServingSizeValue(1);
-        
+        // Product is unknown, redirect to product creation modal
+        setResolvedProduct(null);
         setStep('create_product');
       }
     } catch (err) {
@@ -295,123 +179,6 @@ export default function Scan() {
     }
   }, [urlBarcode]);
 
-  // Form submission: Create new product registry entry
-  const handleCreateProduct = async (e) => {
-    e.preventDefault();
-    if (!prodName || !prodUnit) return;
-
-    setLoading(true);
-
-    // Calculate DB fields from UI states
-    let sUnit = capacityUnit;
-    let sSize = 1.0;
-    let sPkg = 1.0;
-    let calPerSrv = caloriesValue !== '' ? parseInt(caloriesValue, 10) : null;
-
-    const capVal = parseFloat(capacityValue) || 1.0;
-
-    if (hasCustomServing) {
-      sPkg = parseFloat(servingsPerPackageValue) || 1.0;
-      sSize = capVal / sPkg;
-      sUnit = capacityUnit;
-    } else {
-      if (calorieMode === 'per_unit') {
-        sSize = 1.0;
-        sPkg = capVal;
-      } else if (calorieMode === 'per_100') {
-        sSize = 100.0;
-        sPkg = capVal / 100.0;
-      } else if (calorieMode === 'per_package') {
-        sSize = capVal;
-        sPkg = 1.0;
-      }
-    }
-
-    const payload = {
-      name: prodName,
-      barcode: scannedBarcode,
-      brand: prodBrand || null,
-      category: prodCategory,
-      default_unit: prodUnit,
-      servings_per_package: sPkg,
-      serving_size: sSize,
-      serving_unit: sUnit,
-      minimum_stock: parseFloat(prodMinStock) || 0,
-      use_by_days_after_opening: prodUseByDays ? parseInt(prodUseByDays, 10) : null,
-      package_type: prodPackageType || 'package',
-      calories_per_serving: calPerSrv
-    };
-
-    try {
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      
-      if (res.ok) {
-        // Product created, now load it into memory and transition to inventory logging step
-        setResolvedProduct({ id: data.id, ...payload });
-        setQuantity(1);
-        setPrice('');
-        setStoreLocation('');
-        
-        setStorageLocation(getDefaultStorageLocation(prodCategory));
-        setExpirationDate('');
-        
-        setStep('add_inventory');
-      } else {
-        alert(`Failed to register product: ${data.error}`);
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Form submission: Log inventory purchase
-  const handleAddInventory = async (e) => {
-    e.preventDefault();
-    if (!resolvedProduct) return;
-
-    setLoading(true);
-    const payload = {
-      product_id: resolvedProduct.id,
-      quantity: parseFloat(quantity) || 1,
-      price: price ? parseFloat(price) : null,
-      store_location: storeLocation || null,
-      storage_location: storageLocation,
-      purchase_date: purchaseDate,
-      expiration_date: expirationDate || null
-    };
-
-    try {
-      const res = await fetch('/api/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        alert(`Successfully added ${quantity} pkg of ${resolvedProduct.name} to inventory!`);
-        // Reset and go back to scanner screen
-        setScannedBarcode('');
-        setBarcodeInput('');
-        setResolvedProduct(null);
-        setStep('scan');
-        setSearchParams({});
-      } else {
-        const err = await res.json();
-        alert(`Error logging inventory: ${err.error}`);
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleCancel = () => {
     stopScanner();
     setScannedBarcode('');
@@ -419,6 +186,16 @@ export default function Scan() {
     setResolvedProduct(null);
     setStep('scan');
     setSearchParams({});
+  };
+
+  const handleInventorySaved = () => {
+    alert(`Successfully added item to inventory!`);
+    setScannedBarcode('');
+    setBarcodeInput('');
+    setResolvedProduct(null);
+    setStep('scan');
+    setSearchParams({});
+    fetchProducts();
   };
 
   return (
@@ -506,430 +283,30 @@ export default function Scan() {
         </div>
       )}
 
-      {/* STEP 2: CREATE PRODUCT METADATA */}
-      {!loading && step === 'create_product' && (
-        <div className="glass-panel p-6 rounded-2xl space-y-4">
-          <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Database className="h-5 w-5 text-indigo-400" /> Unknown Barcode Found
-            </h2>
-            <span className="text-xs text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded font-mono">
-              BC: {scannedBarcode}
-            </span>
-          </div>
+      <ProductModal
+        isOpen={step === 'create_product'}
+        onClose={handleCancel}
+        onSave={async (newProduct) => {
+          setProducts(prev => [...prev, newProduct]);
+          setResolvedProduct(newProduct);
+          setStep('add_inventory');
+          fetchProducts();
+        }}
+        prefilledBarcode={scannedBarcode}
+        categories={categories}
+        parentProducts={products.filter(p => p.is_parent === 1 || !p.parent_product_id)}
+      />
 
-          <p className="text-xs text-slate-400">
-            This barcode is not in your database registry. Please enter its metadata to register it, then log your purchase.
-          </p>
-
-          <form onSubmit={handleCreateProduct} className="space-y-4 text-xs text-slate-200">
-            {/* Name */}
-            <div className="space-y-1.5">
-              <label className="block text-slate-400 font-semibold">Product Name *</label>
-              <input 
-                type="text" 
-                value={prodName} 
-                onChange={(e) => setProdName(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input text-slate-100"
-                placeholder="e.g. Great Value Shredded Cheddar 16oz"
-                required
-              />
-            </div>
-
-            {/* Brand & Category */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="block text-slate-400 font-semibold">Brand</label>
-                <input 
-                  type="text" 
-                  value={prodBrand} 
-                  onChange={(e) => setProdBrand(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input"
-                  placeholder="e.g. Great Value"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-slate-400 font-semibold">Category</label>
-                <select 
-                  value={prodCategory} 
-                  onChange={(e) => setProdCategory(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
-                >
-                  {categories.map(cat => (
-                    <option key={cat.id} value={cat.name}>{cat.name}</option>
-                  ))}
-                  {categories.length === 0 && (
-                    <>
-                      <option value="Dairy">Dairy</option>
-                      <option value="Produce">Produce</option>
-                      <option value="Meat & Seafood">Meat & Seafood</option>
-                      <option value="Bakery">Bakery</option>
-                      <option value="Pantry">Pantry</option>
-                      <option value="Frozen">Frozen</option>
-                      <option value="Beverages">Beverages</option>
-                      <option value="Other">Other</option>
-                    </>
-                  )}
-                </select>
-              </div>
-            </div>
-
-            {/* Package Type */}
-            <div className="space-y-1.5">
-              <label className="block text-slate-400 font-semibold">Package Type</label>
-              <select 
-                value={prodPackageType} 
-                onChange={(e) => setProdPackageType(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
-              >
-                <option value="package">Package (generic)</option>
-                <option value="tub">Tub</option>
-                <option value="pack">Pack</option>
-                <option value="carton">Carton</option>
-                <option value="can">Can</option>
-                <option value="bottle">Bottle</option>
-                <option value="jar">Jar</option>
-                <option value="box">Box</option>
-                <option value="bag">Bag</option>
-                <option value="tin">Tin</option>
-                <option value="pouch">Pouch</option>
-                <option value="roll">Roll</option>
-                <option value="container">Container</option>
-              </select>
-            </div>
-
-            {/* Package Content & Capacity Configuration */}
-            <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Package Size & Contents</h3>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-400 font-medium">
-                    One <span className="capitalize text-white">{prodPackageType}</span> contains:
-                  </label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="number" 
-                      step="any"
-                      value={capacityValue} 
-                      onChange={(e) => setCapacityValue(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
-                      placeholder="e.g. 500 or 12"
-                      min="0.01"
-                      required
-                    />
-                    <select 
-                      value={capacityUnit} 
-                      onChange={(e) => setCapacityUnit(e.target.value)}
-                      className="p-2.5 rounded-lg glass-input bg-slate-900 w-32 font-semibold"
-                    >
-                      <option value="pieces">pieces</option>
-                      <option value="g">g (grams)</option>
-                      <option value="ml">ml (milliliters)</option>
-                      <option value="fl_oz">fl_oz (fl. oz.)</option>
-                      <option value="servings">servings</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-400">Track Inventory By:</label>
-                  <select 
-                    value={prodUnit} 
-                    onChange={(e) => setProdUnit(e.target.value)}
-                    className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
-                    required
-                  >
-                    {getTrackingUnitOptions().map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* Servings & Calories Configuration */}
-            <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Servings & Calories</h3>
-              
-              <div className="space-y-3">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-350">
-                  <input 
-                    type="checkbox" 
-                    checked={hasCustomServing} 
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setHasCustomServing(checked);
-                      if (checked) {
-                        setServingsPerPackageValue(1.0);
-                        setServingSizeValue(parseFloat(capacityValue) || 1.0);
-                        setServingUnit(capacityUnit || 'pieces');
-                        setCalorieMode('per_serving');
-                      } else {
-                        setCalorieMode('per_unit');
-                      }
-                    }}
-                    className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  This product has a custom serving size (e.g. nutrition label serves 30g out of a 500g tub)
-                </label>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                  {hasCustomServing ? (
-                    <div className="col-span-1 sm:col-span-2 space-y-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in">
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-semibold text-slate-400">Portions / Servings count</label>
-                          <div className="flex items-center gap-2">
-                            <input 
-                              type="number" 
-                              step="any"
-                              value={servingsPerPackageValue} 
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value) || 0;
-                                setServingsPerPackageValue(e.target.value);
-                                if (val > 0) {
-                                  setServingSizeValue((parseFloat(capacityValue) || 1.0) / val);
-                                }
-                              }}
-                              className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
-                              placeholder="e.g. 20"
-                              min="0.01"
-                              required
-                            />
-                            <span className="text-sm text-slate-400 w-16 text-left">servings</span>
-                          </div>
-                        </div>
-                        <div className="flex items-end pb-2">
-                          <span className="text-[11px] text-slate-500 font-medium italic">
-                            Calculated: 1 serving = {((parseFloat(capacityValue) || 1.0) / (parseFloat(servingsPerPackageValue) || 1.0)).toFixed(2)} {capacityUnit}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-semibold text-slate-400">Calories per Serving (kcal)</label>
-                        <input 
-                          type="number" 
-                          value={caloriesValue} 
-                          onChange={(e) => setCaloriesValue(e.target.value)}
-                          className="w-full p-2.5 rounded-lg glass-input font-semibold"
-                          placeholder="e.g. 120 (Optional)"
-                          min="0"
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-semibold text-slate-400 font-medium">Calories Specified Per:</label>
-                        <select 
-                          value={calorieMode} 
-                          onChange={(e) => setCalorieMode(e.target.value)}
-                          className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
-                        >
-                          <option value="per_unit">1 {capacityUnit === 'pieces' ? 'piece' : capacityUnit === 'servings' ? 'serving' : capacityUnit}</option>
-                          {(capacityUnit === 'g' || capacityUnit === 'ml' || capacityUnit === 'fl_oz') && (
-                            <option value="per_100">100 {capacityUnit}</option>
-                          )}
-                          <option value="per_package">Entire {prodPackageType} ({capacityValue} {capacityUnit})</option>
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-semibold text-slate-400">Calories (kcal)</label>
-                        <input 
-                          type="number" 
-                          value={caloriesValue} 
-                          onChange={(e) => setCaloriesValue(e.target.value)}
-                          className="w-full p-2.5 rounded-lg glass-input font-semibold"
-                          placeholder="e.g. 150 (Optional)"
-                          min="0"
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Min Stock */}
-            <div className="space-y-1.5">
-              <label className="block text-indigo-300 font-semibold">
-                Inventory Minimum Alert Threshold (in {prodUnit})
-              </label>
-              <input 
-                type="number" 
-                step="any"
-                value={prodMinStock} 
-                onChange={(e) => setProdMinStock(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input"
-                min="0"
-              />
-            </div>
-
-            {/* Use-by Shelf Life After Opening */}
-            <div className="space-y-1.5">
-              <label className="block text-slate-400 font-semibold">
-                Use-by Shelf Life After Opening (Days)
-              </label>
-              <input 
-                type="number" 
-                step="1"
-                value={prodUseByDays} 
-                onChange={(e) => setProdUseByDays(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input"
-                min="1"
-                placeholder="e.g. 5 (Optional)"
-              />
-            </div>
-
-            {/* Save Action */}
-            <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-              <button 
-                type="button"
-                onClick={handleCancel}
-                className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold"
-              >
-                Cancel
-              </button>
-              <button 
-                type="submit"
-                className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white font-semibold shadow-lg hover:opacity-90"
-              >
-                Register & Proceed <ArrowRight className="h-4 w-4" />
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* STEP 3: ADD PURCHASE LOG */}
-      {!loading && step === 'add_inventory' && (
-        <div className="glass-panel p-6 rounded-2xl space-y-4 animate-scale-up">
-          <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <ShoppingBag className="h-5 w-5 text-indigo-400" /> Log Scanned Item Purchase
-            </h2>
-          </div>
-
-          {/* Product Recap */}
-          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-850 flex justify-between items-center text-xs">
-            <div>
-              <span className="text-slate-500 font-semibold block">Registered Product</span>
-              <strong className="text-white text-sm">{resolvedProduct?.name}</strong>
-              <span className="text-slate-400 block mt-0.5">{resolvedProduct?.brand || 'Generic Brand'}</span>
-            </div>
-            <div className="text-right">
-              <span className="text-[11px] font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded font-mono">
-                BC: {scannedBarcode}
-              </span>
-            </div>
-          </div>
-
-          <form onSubmit={handleAddInventory} className="space-y-4 text-xs text-slate-200">
-            {/* Quantity & Storage Location */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="block text-slate-400 font-semibold">Quantity (Packages) *</label>
-                <input 
-                  type="number" 
-                  step="any"
-                  value={quantity} 
-                  onChange={(e) => setQuantity(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input text-center"
-                  min="0.1"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-slate-400 font-semibold">Storage Location</label>
-                <select 
-                  value={storageLocation} 
-                  onChange={(e) => setStorageLocation(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
-                >
-                  {locations.map(loc => (
-                    <option key={loc.id} value={loc.name}>{loc.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Price & Store Location */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="block text-slate-400 font-semibold">Price Paid ($)</label>
-                <input 
-                  type="number" 
-                  step="any"
-                  placeholder="e.g. 3.49"
-                  value={price} 
-                  onChange={(e) => setPrice(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input"
-                  min="0"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-slate-400 font-semibold">Store Purchased From</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Aldi"
-                  value={storeLocation} 
-                  onChange={(e) => setStoreLocation(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input"
-                  list="store-suggestions"
-                />
-              </div>
-            </div>
-
-            {/* Dates */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="block text-slate-400 font-semibold">Purchase Date *</label>
-                <input 
-                  type="date" 
-                  value={purchaseDate} 
-                  onChange={(e) => setPurchaseDate(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-slate-400 font-semibold">Expiration Date</label>
-                <input 
-                  type="date" 
-                  value={expirationDate} 
-                  onChange={(e) => setExpirationDate(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input"
-                />
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-              <button 
-                type="button"
-                onClick={handleCancel}
-                className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold"
-              >
-                Cancel
-              </button>
-              <button 
-                type="submit"
-                className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white font-semibold shadow-lg hover:opacity-90 transition-opacity"
-              >
-                <Check className="h-4.5 w-4.5" /> Complete Purchase Log
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-      
-      {/* Autocomplete Suggestions Datalist */}
-      <datalist id="store-suggestions">
-        {storeSuggestions.map((store, idx) => (
-          <option key={idx} value={store} />
-        ))}
-      </datalist>
+      <InventoryModal
+        isOpen={step === 'add_inventory'}
+        onClose={handleCancel}
+        onSave={handleInventorySaved}
+        preselectedProductId={resolvedProduct?.id}
+        products={products}
+        locations={locations}
+        categories={categories}
+        storeSuggestions={storeSuggestions}
+      />
     </div>
   );
 }
