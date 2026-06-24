@@ -878,14 +878,34 @@ app.post('/api/recipes/:id/make', async (req, res) => {
   try {
     const db = await getDb();
     
-    // Fetch recipe ingredients
-    const ingredients = await db.all(`
-      SELECT ri.*, p.name as product_name, p.default_unit as prod_unit, p.serving_size as prod_serving_size, 
-             p.serving_unit as prod_serving_unit, p.parent_product_id
-      FROM recipe_ingredients ri
-      JOIN products p ON ri.product_id = p.id
-      WHERE ri.recipe_id = ?
-    `, [req.params.id]);
+    let ingredients = [];
+    if (req.body.ingredients && Array.isArray(req.body.ingredients)) {
+      // Custom ingredients sent by frontend
+      for (const customIng of req.body.ingredients) {
+        const product = await db.get(`
+          SELECT name as product_name, default_unit as prod_unit, serving_size as prod_serving_size, 
+                 serving_unit as prod_serving_unit, parent_product_id
+          FROM products WHERE id = ?
+        `, [customIng.product_id]);
+        if (product) {
+          ingredients.push({
+            product_id: customIng.product_id,
+            amount: parseFloat(customIng.amount),
+            unit: customIng.unit,
+            ...product
+          });
+        }
+      }
+    } else {
+      // Fetch recipe ingredients
+      ingredients = await db.all(`
+        SELECT ri.*, p.name as product_name, p.default_unit as prod_unit, p.serving_size as prod_serving_size, 
+               p.serving_unit as prod_serving_unit, p.parent_product_id
+        FROM recipe_ingredients ri
+        JOIN products p ON ri.product_id = p.id
+        WHERE ri.recipe_id = ?
+      `, [req.params.id]);
+    }
 
     await db.run('BEGIN TRANSACTION');
 
@@ -974,6 +994,31 @@ app.post('/api/recipes/:id/make', async (req, res) => {
     const db = await getDb();
     try { await db.run('ROLLBACK'); } catch (_) {}
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Helper endpoint to perform unit conversions using backend converter library
+app.get('/api/convert-unit', async (req, res) => {
+  try {
+    const { amount, from, to, product_id } = req.query;
+    if (!amount || !from || !to) {
+      return res.status(400).json({ error: 'amount, from, and to are required' });
+    }
+    const amt = parseFloat(amount);
+    if (isNaN(amt)) {
+      return res.status(400).json({ error: 'amount must be a valid number' });
+    }
+    
+    let product = {};
+    if (product_id) {
+      const db = await getDb();
+      product = await db.get('SELECT * FROM products WHERE id = ?', [product_id]) || {};
+    }
+    
+    const result = convertUnit(amt, from, to, product);
+    res.json({ result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

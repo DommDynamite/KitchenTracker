@@ -24,6 +24,8 @@ export default function Recipes() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState(null); // { message: string, type: 'success' | 'error' }
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [adjustedIngredients, setAdjustedIngredients] = useState([]);
 
   // Derived state for recipe steps to avoid array out-of-bounds/glitches during transition
   const stepIndexToUse = activeRecipeDetails?.steps && activeStepIndex < activeRecipeDetails.steps.length ? activeStepIndex : 0;
@@ -107,6 +109,96 @@ export default function Recipes() {
       }
     } catch (error) {
       console.error('Error consuming recipe ingredients:', error);
+    }
+  };
+
+  const handleOpenAdjustModal = () => {
+    if (!activeRecipeDetails) return;
+    const cloned = activeRecipeDetails.ingredients.map(ing => ({
+      product_id: ing.product_id,
+      product_name: ing.product_name,
+      amount: ing.amount,
+      originalAmount: ing.amount,
+      unit: ing.unit,
+      prod_unit: ing.prod_unit
+    }));
+    setAdjustedIngredients(cloned);
+    setShowAdjustModal(true);
+  };
+
+  const handleScaleIngredients = async (factor) => {
+    const scaled = await Promise.all(adjustedIngredients.map(async (ing, idx) => {
+      const originalIng = activeRecipeDetails.ingredients[idx];
+      const targetAmountInOriginalUnit = originalIng.amount * factor;
+      if (ing.unit === originalIng.unit) {
+        return {
+          ...ing,
+          amount: parseFloat(targetAmountInOriginalUnit.toFixed(2))
+        };
+      } else {
+        try {
+          const res = await fetch(`/api/convert-unit?amount=${targetAmountInOriginalUnit}&from=${originalIng.unit}&to=${ing.unit}&product_id=${ing.product_id}`);
+          const data = await res.json();
+          if (res.ok) {
+            return {
+              ...ing,
+              amount: parseFloat(data.result.toFixed(2))
+            };
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        return ing;
+      }
+    }));
+    setAdjustedIngredients(scaled);
+  };
+
+  const handleUnitChange = async (idx, newUnit) => {
+    const ing = adjustedIngredients[idx];
+    if (ing.unit === newUnit) return;
+    try {
+      const res = await fetch(`/api/convert-unit?amount=${ing.amount}&from=${ing.unit}&to=${newUnit}&product_id=${ing.product_id}`);
+      const data = await res.json();
+      if (res.ok) {
+        setAdjustedIngredients(prev => prev.map((item, i) => 
+          i === idx 
+            ? { ...item, amount: parseFloat(data.result.toFixed(2)), unit: newUnit } 
+            : item
+        ));
+      } else {
+        setToast({ message: `Error converting unit: ${data.error}`, type: 'error' });
+      }
+    } catch (err) {
+      console.error('Error converting unit:', err);
+      setToast({ message: 'Failed to convert unit.', type: 'error' });
+    }
+  };
+
+  const handleConfirmMakeRecipe = async () => {
+    try {
+      const res = await fetch(`/api/recipes/${activeRecipeDetails.recipe.id}/make`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingredients: adjustedIngredients.map(ing => ({
+            product_id: ing.product_id,
+            amount: parseFloat(ing.amount),
+            unit: ing.unit
+          }))
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setToast({ message: data.message, type: 'success' });
+        setShowAdjustModal(false);
+        fetchRecipeDetails(activeRecipeDetails.recipe.id);
+      } else {
+        setToast({ message: `Error making recipe: ${data.error}`, type: 'error' });
+      }
+    } catch (err) {
+      console.error('Error making recipe:', err);
+      setToast({ message: 'Failed to consume ingredients.', type: 'error' });
     }
   };
 
@@ -673,12 +765,22 @@ export default function Recipes() {
                   <BookOpen className="h-5 w-5 text-indigo-400" /> Ingredients Inventory Check
                 </h3>
                 {activeRecipeDetails && (
-                  <button
-                    onClick={handleMakeRecipe}
-                    className="flex items-center gap-1.5 rounded-lg bg-gradient-indigo px-4 py-2 text-xs font-bold text-white shadow hover:opacity-90 active:scale-95 transition-all"
-                  >
-                    <Check className="h-4 w-4" /> Make Recipe (Consume Items)
-                  </button>
+                  <div className="flex gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleOpenAdjustModal}
+                      className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 px-4 py-2 text-xs font-bold text-indigo-400 shadow active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Sliders className="h-4 w-4" /> Adjust & Make
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleMakeRecipe}
+                      className="flex items-center gap-1.5 rounded-lg bg-gradient-indigo px-4 py-2 text-xs font-bold text-white shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Check className="h-4 w-4" /> Make Recipe (Consume Items)
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -1107,6 +1209,113 @@ export default function Recipes() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Adjust Recipe Ingredients Modal */}
+      {showAdjustModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl glass-panel p-6 space-y-5 my-8 relative animate-scale-up">
+            <button 
+              onClick={() => setShowAdjustModal(false)}
+              className="absolute right-4 top-4 p-1 rounded-full text-slate-400 hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h2 className="text-xl font-bold text-white flex items-center gap-2 pb-2 border-b border-slate-800">
+              <Sliders className="h-5 w-5 text-indigo-400" />
+              Adjust Ingredient Amounts
+            </h2>
+
+            {/* Quick Scaling Buttons */}
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Quick Scale Recipe</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleScaleIngredients(0.5)}
+                  className="flex-1 py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-all active:scale-95 cursor-pointer"
+                >
+                  ½x (Half)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleScaleIngredients(1.0)}
+                  className="flex-1 py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-all active:scale-95 cursor-pointer"
+                >
+                  1x (Original)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleScaleIngredients(2.0)}
+                  className="flex-1 py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-all active:scale-95 cursor-pointer"
+                >
+                  2x (Double)
+                </button>
+              </div>
+            </div>
+
+            {/* Ingredient List for Adjustment */}
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Ingredients</label>
+              {adjustedIngredients.map((ing, idx) => (
+                <div key={idx} className="flex flex-col gap-1.5 p-3 rounded-xl border border-slate-850 bg-slate-900/40">
+                  <span className="text-sm font-semibold text-white truncate">{ing.product_name}</span>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={ing.amount}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setAdjustedIngredients(prev => prev.map((item, i) => 
+                          i === idx ? { ...item, amount: val } : item
+                        ));
+                      }}
+                      className="flex-1 p-2 rounded-lg glass-input text-xs font-semibold"
+                    />
+                    <select
+                      value={ing.unit}
+                      onChange={(e) => handleUnitChange(idx, e.target.value)}
+                      className="w-28 p-2 rounded-lg glass-input bg-slate-900 text-xs font-semibold cursor-pointer"
+                    >
+                      <option value="g">g</option>
+                      <option value="kg">kg</option>
+                      <option value="oz">oz</option>
+                      <option value="lb">lb</option>
+                      <option value="ml">ml</option>
+                      <option value="l">l</option>
+                      <option value="fl_oz">fl_oz</option>
+                      <option value="cups">cups</option>
+                      <option value="pieces">pieces</option>
+                      <option value="servings">servings</option>
+                      <option value="%">%</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+              <button 
+                type="button"
+                onClick={() => setShowAdjustModal(false)}
+                className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                onClick={handleConfirmMakeRecipe}
+                className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white text-xs font-semibold shadow-lg hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+              >
+                <Check className="h-4 w-4" /> Confirm & Consume
+              </button>
+            </div>
           </div>
         </div>
       )}
