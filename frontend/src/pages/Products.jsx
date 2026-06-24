@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, Edit2, Trash2, Tag, 
   Layers, Package, Check, X, Upload, Camera, Database,
-  Eye, EyeOff
+  Eye, EyeOff, LayoutGrid, List
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 
@@ -37,6 +37,7 @@ export default function Products() {
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [showChildProducts, setShowChildProducts] = useState(true);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [toast, setToast] = useState(null); // { message: string, type: 'success' | 'error' }
 
@@ -418,6 +419,25 @@ export default function Products() {
               </>
             )}
           </button>
+          
+          <div className="flex bg-slate-950/60 p-1 rounded-lg border border-slate-800 shrink-0">
+            <button 
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded-md transition-colors cursor-pointer ${viewMode === 'grid' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              title="Grid View"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button 
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded-md transition-colors cursor-pointer ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              title="List View"
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
 
           <div className="flex gap-4 text-sm text-slate-400 font-medium">
             <span>Total Products: <strong className="text-white">{products.length}</strong></span>
@@ -438,7 +458,7 @@ export default function Products() {
           <h3 className="text-xl font-bold text-white">No Products Registered</h3>
           <p className="text-slate-500 mt-1">Add products manually or use a barcode scan to begin.</p>
         </div>
-      ) : (
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProducts.map(prod => (
             <div key={prod.id} className="glass-panel rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group">
@@ -536,6 +556,94 @@ export default function Products() {
               </div>
             </div>
           ))}
+        </div>
+      ) : (
+        /* COMPACT LIST VIEW LAYOUT */
+        <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 font-bold uppercase tracking-wider">
+                  <th className="p-4">Product</th>
+                  <th className="p-4">Category</th>
+                  <th className="p-4">Barcode</th>
+                  <th className="p-4">Capacity</th>
+                  <th className="p-4">Servings</th>
+                  <th className="p-4">Calories</th>
+                  <th className="p-4">Min Alert</th>
+                  <th className="p-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/40">
+                {filteredProducts.map(prod => {
+                  const hasCapacity = PHYSICAL_UNITS.has(normalizeUnit(prod.serving_unit || prod.default_unit)) && prod.serving_size > 0;
+                  return (
+                    <tr key={prod.id} className="hover:bg-slate-900/30 transition-colors">
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          {prod.image_path ? (
+                            <img src={prod.image_path} alt="" className="h-10 w-10 object-cover rounded-lg border border-slate-800 shrink-0" />
+                          ) : (
+                            <div className="h-10 w-10 rounded-lg border border-slate-800 bg-slate-900/50 flex items-center justify-center shrink-0">
+                              <Package className="h-5 w-5 text-slate-500" />
+                            </div>
+                          )}
+                          <div>
+                            <span className="font-bold text-white block text-sm">{prod.name}</span>
+                            <span className="text-slate-400 text-[10px]">{prod.brand || 'Generic'}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4 text-slate-300">
+                        {prod.category || 'Pantry'}
+                      </td>
+                      <td className="p-4 font-mono text-slate-400 text-[11px]">
+                        {prod.barcode || '-'}
+                      </td>
+                      <td className="p-4 text-white font-medium">
+                        {hasCapacity 
+                          ? `${(prod.servings_per_package * prod.serving_size).toFixed(1)}${normalizeUnit(prod.serving_unit || prod.default_unit)}`
+                          : `${prod.servings_per_package} srv`}
+                      </td>
+                      <td className="p-4 text-slate-300">
+                        {prod.servings_per_package} srv
+                      </td>
+                      <td className="p-4 text-slate-350">
+                        {prod.calories_per_serving !== null && prod.calories_per_serving !== undefined 
+                          ? `${prod.calories_per_serving} kcal/srv` 
+                          : '-'}
+                      </td>
+                      <td className="p-4 text-slate-400">
+                        {prod.parent_product_id ? (
+                          <span className="text-[10px] text-slate-500 italic">Inherited</span>
+                        ) : (
+                          `${prod.minimum_stock || 0} ${prod.default_unit}`
+                        )}
+                      </td>
+                      <td className="p-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => handleOpenEdit(prod)}
+                            className="p-1.5 rounded bg-slate-800/40 hover:bg-slate-700/60 text-indigo-400 hover:text-indigo-300 transition-colors"
+                            title="Edit Product"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(prod.id)}
+                            className="p-1.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors"
+                            title="Delete Product"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
