@@ -426,10 +426,7 @@ export default function Products() {
     if (prod.image_path) return prod.image_path;
     const children = products.filter(p => p.parent_product_id == prod.id);
     const childWithImage = children.find(p => p.image_path);
-    if (childWithImage) {
-      console.log(`[PRODUCTS REGISTRY IMAGE FALLBACK] Parent product without image "${prod.name}" (ID: ${prod.id}) adopting image from child "${childWithImage.name}" (ID: ${childWithImage.id}): ${childWithImage.image_path}`);
-      return childWithImage.image_path;
-    }
+    if (childWithImage) return childWithImage.image_path;
     return null;
   };
 
