@@ -24,6 +24,10 @@ export default function Recipes() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Derived state for recipe steps to avoid array out-of-bounds/glitches during transition
+  const stepIndexToUse = activeRecipeDetails?.steps && activeStepIndex < activeRecipeDetails.steps.length ? activeStepIndex : 0;
+  const currentStep = activeRecipeDetails?.steps?.[stepIndexToUse] || {};
+
   // Form State for creating a recipe
   const [recipeName, setRecipeName] = useState('');
   const [recipeDesc, setRecipeDesc] = useState('');
@@ -723,42 +727,44 @@ export default function Recipes() {
                     )}
                   </button>
                 </div>
-                
-                {stepsViewMode === 'slider' ? (
-                  /* Step Slider UI */
+                {activeRecipeDetails.steps.length === 0 ? (
+                  <div className="glass-card p-6 text-center rounded-xl border border-slate-800">
+                    <p className="text-slate-400 text-sm italic">No steps registered for this recipe.</p>
+                  </div>
+                ) : stepsViewMode === 'slider' ? (
                   <div className="glass-card p-5 rounded-xl border border-slate-800 space-y-4 animate-fade-in">
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-bold text-indigo-400 uppercase tracking-wide">
-                        Step {activeStepIndex + 1} of {activeRecipeDetails.steps.length}
+                        Step {stepIndexToUse + 1} of {activeRecipeDetails.steps.length}
                       </span>
                     </div>
 
                     <div className="flex flex-col md:flex-row gap-5 items-center">
-                      {activeRecipeDetails.steps[activeStepIndex].image_path && (
+                      {currentStep.image_path && (
                         <div className="w-full md:w-40 h-32 rounded-lg overflow-hidden shrink-0 border border-slate-800">
                           <img 
-                            src={activeRecipeDetails.steps[activeStepIndex].image_path} 
-                            alt={`Step ${activeStepIndex + 1}`} 
+                            src={currentStep.image_path} 
+                            alt={`Step ${stepIndexToUse + 1}`} 
                             className="w-full h-full object-cover" 
                           />
                         </div>
                       )}
                       <p className="text-slate-200 text-sm leading-relaxed flex-1">
-                        {activeRecipeDetails.steps[activeStepIndex].instruction}
+                        {currentStep.instruction}
                       </p>
                     </div>
 
                     <div className="flex justify-between items-center pt-4 border-t border-slate-850">
                       <button
                         onClick={() => setActiveStepIndex(prev => Math.max(0, prev - 1))}
-                        disabled={activeStepIndex === 0}
+                        disabled={stepIndexToUse === 0}
                         className="flex items-center gap-1 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none text-xs text-white"
                       >
                         <ChevronLeft className="h-4 w-4" /> Previous
                       </button>
                       <button
                         onClick={() => setActiveStepIndex(prev => Math.min(activeRecipeDetails.steps.length - 1, prev + 1))}
-                        disabled={activeStepIndex === activeRecipeDetails.steps.length - 1}
+                        disabled={stepIndexToUse === activeRecipeDetails.steps.length - 1}
                         className="flex items-center gap-1 px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:pointer-events-none text-xs text-white"
                       >
                         Next <ChevronRight className="h-4 w-4" />
