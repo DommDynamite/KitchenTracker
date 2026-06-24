@@ -768,6 +768,86 @@ app.delete('/api/locations/:id', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// CATEGORY ROUTES
+// ----------------------------------------------------
+
+// Get all categories
+app.get('/api/categories', async (req, res) => {
+  try {
+    const db = await getDb();
+    const categories = await db.all('SELECT * FROM categories ORDER BY name ASC');
+    res.json(categories);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add a category
+app.post('/api/categories', async (req, res) => {
+  const { name, default_storage_location } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Category name is required' });
+  }
+
+  try {
+    const db = await getDb();
+    const result = await db.run(
+      'INSERT INTO categories (name, default_storage_location) VALUES (?, ?)',
+      [name.trim(), default_storage_location || null]
+    );
+    res.status(201).json({ id: result.lastID, name: name.trim(), default_storage_location: default_storage_location || null });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Category with that name already exists' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a category (name and/or default_storage_location)
+app.put('/api/categories/:id', async (req, res) => {
+  const { name, default_storage_location } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Category name is required' });
+  }
+
+  try {
+    const db = await getDb();
+    const existing = await db.get('SELECT * FROM categories WHERE id = ?', [req.params.id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    
+    await db.run(
+      'UPDATE categories SET name = ?, default_storage_location = ? WHERE id = ?',
+      [name.trim(), default_storage_location || null, req.params.id]
+    );
+    res.json({ message: 'Category updated successfully' });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Category with that name already exists' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a category
+app.delete('/api/categories/:id', async (req, res) => {
+  try {
+    const db = await getDb();
+    const cat = await db.get('SELECT name FROM categories WHERE id = ?', [req.params.id]);
+    if (!cat) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    
+    await db.run('DELETE FROM categories WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Category deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
 // RECIPE ROUTES
 // ----------------------------------------------------
 

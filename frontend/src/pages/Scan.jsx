@@ -45,6 +45,47 @@ export default function Scan() {
   const [caloriesValue, setCaloriesValue] = useState('');
   const [hasCustomServing, setHasCustomServing] = useState(false);
   const [servingSizeValue, setServingSizeValue] = useState(1);
+  const [servingsPerPackageValue, setServingsPerPackageValue] = useState(1);
+  const [servingUnit, setServingUnit] = useState('pieces');
+  
+  const [categories, setCategories] = useState([]);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch categories:', err);
+    }
+  };
+
+  const getDefaultStorageLocation = (catName) => {
+    let defaultLoc = 'Pantry';
+    if (catName) {
+      const matchedCategory = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
+      if (matchedCategory && matchedCategory.default_storage_location) {
+        const matchedLoc = locations.find(l => l.name.toLowerCase() === matchedCategory.default_storage_location.toLowerCase());
+        if (matchedLoc) {
+          return matchedLoc.name;
+        }
+      }
+      
+      const isCold = catName === 'Dairy' || catName === 'Meat & Seafood';
+      const targetSearch = isCold ? 'fridge' : 'pantry';
+      const matched = locations.find(l => l.name.toLowerCase() === targetSearch);
+      if (matched) {
+        defaultLoc = matched.name;
+      } else if (locations.length > 0) {
+        defaultLoc = locations[0].name;
+      }
+    } else if (locations.length > 0) {
+      defaultLoc = locations[0].name;
+    }
+    return defaultLoc;
+  };
 
   const getTrackingUnitOptions = () => {
     const options = [];
@@ -82,10 +123,6 @@ export default function Scan() {
       if (res.ok) {
         const data = await res.json();
         setLocations(data);
-        if (data.length > 0) {
-          const hasPantry = data.find(l => l.name.toLowerCase() === 'pantry');
-          setStorageLocation(hasPantry ? hasPantry.name : data[0].name);
-        }
       }
     } catch (err) {
       console.error('Failed to fetch locations:', err);
@@ -159,6 +196,7 @@ export default function Scan() {
     };
     fetchStores();
     fetchLocations();
+    fetchCategories();
 
     // Cleanup scanner on unmount
     return () => {
@@ -167,6 +205,24 @@ export default function Scan() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (locations.length > 0 && !storageLocation) {
+      const hasPantry = locations.find(l => l.name.toLowerCase() === 'pantry');
+      setStorageLocation(hasPantry ? hasPantry.name : locations[0].name);
+    }
+  }, [locations, storageLocation]);
+
+  useEffect(() => {
+    if (categories.length > 0) {
+      const pantryCat = categories.find(c => c.name.toLowerCase() === 'pantry');
+      if (pantryCat) {
+        setProdCategory(pantryCat.name);
+      } else {
+        setProdCategory(categories[0].name);
+      }
+    }
+  }, [categories]);
 
   const getPluralProdPackageType = (type) => {
     if (!type) return 'packages';
@@ -195,16 +251,7 @@ export default function Scan() {
         setPrice('');
         setStoreLocation('');
         
-        let defaultLoc = 'Pantry';
-        const isCold = product.category === 'Dairy' || product.category === 'Meat & Seafood';
-        const targetSearch = isCold ? 'fridge' : 'pantry';
-        const matched = locations.find(l => l.name.toLowerCase() === targetSearch);
-        if (matched) {
-          defaultLoc = matched.name;
-        } else if (locations.length > 0) {
-          defaultLoc = locations[0].name;
-        }
-        setStorageLocation(defaultLoc);
+        setStorageLocation(getDefaultStorageLocation(product.category));
         setExpirationDate('');
         
         setStep('add_inventory');
@@ -264,8 +311,9 @@ export default function Scan() {
     const capVal = parseFloat(capacityValue) || 1.0;
 
     if (hasCustomServing) {
-      sSize = parseFloat(servingSizeValue) || 1.0;
-      sPkg = capVal / sSize;
+      sPkg = parseFloat(servingsPerPackageValue) || 1.0;
+      sSize = capVal / sPkg;
+      sUnit = capacityUnit;
     } else {
       if (calorieMode === 'per_unit') {
         sSize = 1.0;
@@ -309,16 +357,7 @@ export default function Scan() {
         setPrice('');
         setStoreLocation('');
         
-        let defaultLoc = 'Pantry';
-        const isCold = prodCategory === 'Dairy' || prodCategory === 'Meat & Seafood';
-        const targetSearch = isCold ? 'fridge' : 'pantry';
-        const matched = locations.find(l => l.name.toLowerCase() === targetSearch);
-        if (matched) {
-          defaultLoc = matched.name;
-        } else if (locations.length > 0) {
-          defaultLoc = locations[0].name;
-        }
-        setStorageLocation(defaultLoc);
+        setStorageLocation(getDefaultStorageLocation(prodCategory));
         setExpirationDate('');
         
         setStep('add_inventory');
@@ -516,14 +555,21 @@ export default function Scan() {
                   onChange={(e) => setProdCategory(e.target.value)}
                   className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
                 >
-                  <option value="Dairy">Dairy</option>
-                  <option value="Produce">Produce</option>
-                  <option value="Meat & Seafood">Meat & Seafood</option>
-                  <option value="Bakery">Bakery</option>
-                  <option value="Pantry">Pantry</option>
-                  <option value="Frozen">Frozen</option>
-                  <option value="Beverages">Beverages</option>
-                  <option value="Other">Other</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.name}>{cat.name}</option>
+                  ))}
+                  {categories.length === 0 && (
+                    <>
+                      <option value="Dairy">Dairy</option>
+                      <option value="Produce">Produce</option>
+                      <option value="Meat & Seafood">Meat & Seafood</option>
+                      <option value="Bakery">Bakery</option>
+                      <option value="Pantry">Pantry</option>
+                      <option value="Frozen">Frozen</option>
+                      <option value="Beverages">Beverages</option>
+                      <option value="Other">Other</option>
+                    </>
+                  )}
                 </select>
               </div>
             </div>
@@ -607,11 +653,22 @@ export default function Scan() {
               <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Servings & Calories</h3>
               
               <div className="space-y-3">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-350">
                   <input 
                     type="checkbox" 
                     checked={hasCustomServing} 
-                    onChange={(e) => setHasCustomServing(e.target.checked)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setHasCustomServing(checked);
+                      if (checked) {
+                        setServingsPerPackageValue(1.0);
+                        setServingSizeValue(parseFloat(capacityValue) || 1.0);
+                        setServingUnit(capacityUnit || 'pieces');
+                        setCalorieMode('per_serving');
+                      } else {
+                        setCalorieMode('per_unit');
+                      }
+                    }}
                     className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
                   />
                   This product has a custom serving size (e.g. nutrition label serves 30g out of a 500g tub)
@@ -619,21 +676,34 @@ export default function Scan() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                   {hasCustomServing ? (
-                    <>
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-semibold text-slate-400">Serving Size</label>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="number" 
-                            step="any"
-                            value={servingSizeValue} 
-                            onChange={(e) => setServingSizeValue(e.target.value)}
-                            className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
-                            placeholder="e.g. 30"
-                            min="0.01"
-                            required
-                          />
-                          <span className="text-sm text-slate-400 w-16 text-left">{capacityUnit}</span>
+                    <div className="col-span-1 sm:col-span-2 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in">
+                        <div className="space-y-1.5">
+                          <label className="block text-xs font-semibold text-slate-400">Portions / Servings count</label>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="number" 
+                              step="any"
+                              value={servingsPerPackageValue} 
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setServingsPerPackageValue(e.target.value);
+                                if (val > 0) {
+                                  setServingSizeValue((parseFloat(capacityValue) || 1.0) / val);
+                                }
+                              }}
+                              className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
+                              placeholder="e.g. 20"
+                              min="0.01"
+                              required
+                            />
+                            <span className="text-sm text-slate-400 w-16 text-left">servings</span>
+                          </div>
+                        </div>
+                        <div className="flex items-end pb-2">
+                          <span className="text-[11px] text-slate-500 font-medium italic">
+                            Calculated: 1 serving = {((parseFloat(capacityValue) || 1.0) / (parseFloat(servingsPerPackageValue) || 1.0)).toFixed(2)} {capacityUnit}
+                          </span>
                         </div>
                       </div>
                       <div className="space-y-1.5">
@@ -647,7 +717,7 @@ export default function Scan() {
                           min="0"
                         />
                       </div>
-                    </>
+                    </div>
                   ) : (
                     <>
                       <div className="space-y-1.5">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Plus, Edit2, Trash2, Check, X, Sliders, MapPin, AlertCircle, RotateCcw, History, Trash
+  Plus, Edit2, Trash2, Check, X, Sliders, MapPin, AlertCircle, RotateCcw, History, Trash, Tag
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 
@@ -10,6 +10,14 @@ export default function Settings() {
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState('');
   
+  const [categories, setCategories] = useState([]);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryStorage, setNewCategoryStorage] = useState('');
+  const [editingCatId, setEditingCatId] = useState(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [editingCatStorage, setEditingCatStorage] = useState('');
+  const [catLoading, setCatLoading] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -108,8 +116,129 @@ export default function Settings() {
     });
   };
 
+  const fetchCategories = async () => {
+    setCatLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      } else {
+        const err = await res.json();
+        setError(err.error || 'Failed to load categories');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Network error loading categories');
+    } finally {
+      setCatLoading(false);
+    }
+  };
+
+  const handleAddCategory = async (e) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          name: newCategoryName,
+          default_storage_location: newCategoryStorage || null
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNewCategoryName('');
+        setNewCategoryStorage('');
+        setSuccess(`Category "${data.name}" added successfully!`);
+        fetchCategories();
+      } else {
+        setError(data.error || 'Failed to add category');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Network error adding category');
+    }
+  };
+
+  const handleStartEditCat = (cat) => {
+    setEditingCatId(cat.id);
+    setEditingCatName(cat.name);
+    setEditingCatStorage(cat.default_storage_location || '');
+    setError('');
+    setSuccess('');
+  };
+
+  const handleCancelEditCat = () => {
+    setEditingCatId(null);
+    setEditingCatName('');
+    setEditingCatStorage('');
+  };
+
+  const handleSaveEditCat = async (id) => {
+    if (!editingCatName.trim()) return;
+
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch(`/api/categories/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          name: editingCatName,
+          default_storage_location: editingCatStorage || null
+        })
+      });
+      if (res.ok) {
+        setSuccess('Category updated successfully!');
+        setEditingCatId(null);
+        setEditingCatName('');
+        setEditingCatStorage('');
+        fetchCategories();
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Failed to update category');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Network error updating category');
+    }
+  };
+
+  const handleDeleteCategory = async (id, name) => {
+    setDeleteConfirm({
+      title: 'Delete Category',
+      message: `Are you sure you want to delete category "${name}"? Products using this category will remain, but they won't have a default storage location pre-populated.`,
+      onConfirm: async () => {
+        setError('');
+        setSuccess('');
+        try {
+          const res = await fetch(`/api/categories/${id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setSuccess('Category deleted successfully!');
+            fetchCategories();
+          } else {
+            const data = await res.json();
+            setError(data.error || 'Failed to delete category');
+          }
+        } catch (err) {
+          console.error(err);
+          setError('Network error deleting category');
+        }
+      }
+    });
+  };
+
   useEffect(() => {
     fetchLocations();
+    fetchCategories();
     fetchLogs();
   }, []);
 
@@ -340,6 +469,170 @@ export default function Settings() {
                               </button>
                               <button 
                                 onClick={() => handleDeleteLocation(loc.id, loc.name)}
+                                className="p-1.5 rounded-lg bg-rose-950/20 text-rose-400 hover:bg-rose-900/30 border border-rose-500/10"
+                                title="Delete"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Left Form: Add Category */}
+        <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-4 md:col-span-1 h-fit">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Plus className="h-4.5 w-4.5 text-indigo-400" />
+            Add New Category
+          </h2>
+          <p className="text-xs text-slate-400">
+            Define custom item categories and select their default storage location.
+          </p>
+
+          <form onSubmit={handleAddCategory} className="space-y-3.5 pt-2">
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                Category Name
+              </label>
+              <input 
+                type="text" 
+                value={newCategoryName} 
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="e.g. Ice Cream, Condiments"
+                className="w-full p-2.5 rounded-lg glass-input text-xs"
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                Default Storage Location
+              </label>
+              <select
+                value={newCategoryStorage}
+                onChange={(e) => setNewCategoryStorage(e.target.value)}
+                className="w-full p-2.5 rounded-lg glass-input text-xs"
+              >
+                <option value="">Unspecified</option>
+                {locations.map(loc => (
+                  <option key={loc.id} value={loc.name}>{loc.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <button 
+              type="submit"
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-indigo py-2 px-4 text-xs font-semibold text-white shadow-lg transition-transform active:scale-95 hover:opacity-90"
+            >
+              Add Category
+            </button>
+          </form>
+        </div>
+
+        {/* Right List: Configured Categories */}
+        <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-4 md:col-span-2">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Tag className="h-4.5 w-4.5 text-indigo-400" />
+            Configured Categories ({categories.length})
+          </h2>
+
+          <div className="border border-slate-800/80 rounded-xl overflow-hidden bg-slate-950/20">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-900/40 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+                  <th className="p-3.5">Category</th>
+                  <th className="p-3.5 w-48">Default Storage</th>
+                  <th className="p-3.5 text-right w-36">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/40">
+                {catLoading && categories.length === 0 ? (
+                  <tr>
+                    <td colSpan="3" className="p-6 text-center text-slate-500">
+                      Loading categories...
+                    </td>
+                  </tr>
+                ) : categories.length === 0 ? (
+                  <tr>
+                    <td colSpan="3" className="p-6 text-center text-slate-500">
+                      No categories defined.
+                    </td>
+                  </tr>
+                ) : (
+                  categories.map(cat => {
+                    const isEditing = editingCatId === cat.id;
+                    return (
+                      <tr key={cat.id} className="hover:bg-slate-900/20 transition-colors">
+                        <td className="p-3.5">
+                          {isEditing ? (
+                            <input 
+                              type="text"
+                              value={editingCatName}
+                              onChange={(e) => setEditingCatName(e.target.value)}
+                              className="w-full max-w-sm p-1.5 rounded glass-input text-xs font-semibold"
+                              required
+                            />
+                          ) : (
+                            <div className="flex items-center gap-2 text-white font-semibold">
+                              <Tag className="h-3.5 w-3.5 text-indigo-400/80 shrink-0" />
+                              <span>{cat.name}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3.5">
+                          {isEditing ? (
+                            <select
+                              value={editingCatStorage}
+                              onChange={(e) => setEditingCatStorage(e.target.value)}
+                              className="w-full p-1.5 rounded glass-input text-xs"
+                            >
+                              <option value="">Unspecified</option>
+                              {locations.map(loc => (
+                                <option key={loc.id} value={loc.name}>{loc.name}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-slate-400">{cat.default_storage_location || 'Unspecified'}</span>
+                          )}
+                        </td>
+                        <td className="p-3.5 text-right">
+                          {isEditing ? (
+                            <div className="flex justify-end gap-1.5">
+                              <button 
+                                onClick={() => handleSaveEditCat(cat.id)}
+                                className="p-1.5 rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-600/20"
+                                title="Save"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <button 
+                                onClick={handleCancelEditCat}
+                                className="p-1.5 rounded-lg bg-rose-600/10 text-rose-400 border border-rose-500/25 hover:bg-rose-600/20"
+                                title="Cancel"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex justify-end gap-1.5">
+                              <button 
+                                onClick={() => handleStartEditCat(cat)}
+                                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700/80 border border-slate-700/50"
+                                title="Edit Category"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteCategory(cat.id, cat.name)}
                                 className="p-1.5 rounded-lg bg-rose-950/20 text-rose-400 hover:bg-rose-900/30 border border-rose-500/10"
                                 title="Delete"
                               >

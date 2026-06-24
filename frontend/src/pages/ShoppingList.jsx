@@ -23,6 +23,19 @@ export default function ShoppingList() {
   const [globalStore, setGlobalStore] = useState('');
   const [globalStorage, setGlobalStorage] = useState('Pantry');
   const [locations, setLocations] = useState([]);
+  const [categories, setCategories] = useState([]);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch categories:', err);
+    }
+  };
 
   const fetchShoppingListAndProducts = async () => {
     setLoading(true);
@@ -50,6 +63,7 @@ export default function ShoppingList() {
 
   useEffect(() => {
     fetchShoppingListAndProducts();
+    fetchCategories();
   }, []);
 
   const handleAddManualItem = async (e) => {
@@ -112,14 +126,44 @@ export default function ShoppingList() {
     const selectedManual = manualList.filter(item => selectedItems[item.id]);
     const selectedAuto = autoList.filter(item => selectedItems[item.id]);
     
-    const combined = [...selectedManual, ...selectedAuto].map(item => ({
-      product_id: item.product_id,
-      name: item.product_name,
-      quantity: item.amount,
-      price: '',
-      expiration_date: '',
-      list_item_id: item.id // can be 'auto-X' or integer ID
-    }));
+    const getDefaultStorageLocation = (catName) => {
+      let defaultLoc = 'Pantry';
+      if (catName) {
+        const matchedCategory = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
+        if (matchedCategory && matchedCategory.default_storage_location) {
+          const matchedLoc = locations.find(l => l.name.toLowerCase() === matchedCategory.default_storage_location.toLowerCase());
+          if (matchedLoc) {
+            return matchedLoc.name;
+          }
+        }
+        
+        const isCold = catName === 'Dairy' || catName === 'Meat & Seafood';
+        const targetSearch = isCold ? 'fridge' : 'pantry';
+        const matched = locations.find(l => l.name.toLowerCase() === targetSearch);
+        if (matched) {
+          defaultLoc = matched.name;
+        } else if (locations.length > 0) {
+          defaultLoc = locations[0].name;
+        }
+      } else if (locations.length > 0) {
+        defaultLoc = locations[0].name;
+      }
+      return defaultLoc;
+    };
+
+    const combined = [...selectedManual, ...selectedAuto].map(item => {
+      const product = products.find(p => p.id === item.product_id);
+      const catName = product ? product.category : null;
+      return {
+        product_id: item.product_id,
+        name: item.product_name,
+        quantity: item.amount,
+        price: '',
+        expiration_date: '',
+        storage_location: getDefaultStorageLocation(catName),
+        list_item_id: item.id
+      };
+    });
 
     if (combined.length === 0) {
       alert('Please check at least one item to purchase.');
@@ -138,6 +182,14 @@ export default function ShoppingList() {
     setCheckoutItems(updated);
   };
 
+  const handleGlobalStorageChange = (val) => {
+    setGlobalStorage(val);
+    setCheckoutItems(prev => prev.map(item => ({
+      ...item,
+      storage_location: val
+    })));
+  };
+
   // Complete purchase
   const handleCompleteCheckout = async (e) => {
     e.preventDefault();
@@ -148,7 +200,7 @@ export default function ShoppingList() {
       quantity: parseFloat(item.quantity) || 1,
       price: item.price ? parseFloat(item.price) : null,
       store_location: globalStore || null,
-      storage_location: globalStorage,
+      storage_location: item.storage_location || globalStorage,
       expiration_date: item.expiration_date || null,
       list_item_id: item.list_item_id
     }));
@@ -472,7 +524,7 @@ export default function ShoppingList() {
                   </label>
                   <select 
                     value={globalStorage} 
-                    onChange={(e) => setGlobalStorage(e.target.value)}
+                    onChange={(e) => handleGlobalStorageChange(e.target.value)}
                     className="w-full p-2.5 rounded-lg glass-input bg-slate-950"
                   >
                     {locations.map(loc => (
@@ -492,7 +544,7 @@ export default function ShoppingList() {
                       <span>{item.name}</span>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="block text-slate-500 font-medium">Quantity Bought</label>
                         <input 
@@ -500,7 +552,7 @@ export default function ShoppingList() {
                           step="any"
                           value={item.quantity} 
                           onChange={(e) => handleCheckoutFieldChange(idx, 'quantity', e.target.value)}
-                          className="w-full p-2 rounded glass-input text-center"
+                          className="w-full p-2 rounded glass-input text-center font-semibold"
                           required
                         />
                       </div>
@@ -512,7 +564,7 @@ export default function ShoppingList() {
                           placeholder="ea"
                           value={item.price} 
                           onChange={(e) => handleCheckoutFieldChange(idx, 'price', e.target.value)}
-                          className="w-full p-2 rounded glass-input text-center"
+                          className="w-full p-2 rounded glass-input text-center font-semibold"
                           min="0"
                         />
                       </div>
@@ -524,6 +576,20 @@ export default function ShoppingList() {
                           onChange={(e) => handleCheckoutFieldChange(idx, 'expiration_date', e.target.value)}
                           className="w-full p-2 rounded glass-input text-center text-xs"
                         />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-slate-500 font-medium">Storage Destination</label>
+                        <select 
+                          value={item.storage_location || ''} 
+                          onChange={(e) => handleCheckoutFieldChange(idx, 'storage_location', e.target.value)}
+                          className="w-full p-2 rounded glass-input bg-slate-950 font-semibold text-xs"
+                          required
+                        >
+                          {locations.map(loc => (
+                            <option key={loc.id} value={loc.name}>{loc.name}</option>
+                          ))}
+                          {locations.length === 0 && <option value="Pantry">Pantry</option>}
+                        </select>
                       </div>
                     </div>
                   </div>

@@ -122,9 +122,35 @@ export default function Products() {
     }
   };
 
+  const [categories, setCategories] = useState([]);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      }
+    } catch (err) {
+      console.error('Error fetching categories:', err);
+    }
+  };
+
   useEffect(() => {
     fetchProducts();
+    fetchCategories();
   }, []);
+
+  useEffect(() => {
+    if (categories.length > 0 && !editingProduct) {
+      const pantryCat = categories.find(c => c.name.toLowerCase() === 'pantry');
+      if (pantryCat) {
+        setCategory(pantryCat.name);
+      } else {
+        setCategory(categories[0].name);
+      }
+    }
+  }, [categories, editingProduct]);
 
   useEffect(() => {
     if (!toast) return;
@@ -282,6 +308,7 @@ export default function Products() {
     if (hasCustomServing) {
       sPkg = parseFloat(servingsPerPackageValue) || 1.0;
       sSize = capVal / sPkg;
+      sUnit = capacityUnit;
     } else {
       if (calorieMode === 'per_unit') {
         sSize = 1.0;
@@ -710,14 +737,21 @@ export default function Products() {
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
                   >
-                    <option value="Dairy">Dairy</option>
-                    <option value="Produce">Produce</option>
-                    <option value="Meat & Seafood">Meat & Seafood</option>
-                    <option value="Bakery">Bakery</option>
-                    <option value="Pantry">Pantry</option>
-                    <option value="Frozen">Frozen</option>
-                    <option value="Beverages">Beverages</option>
-                    <option value="Other">Other</option>
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    ))}
+                    {categories.length === 0 && (
+                      <>
+                        <option value="Dairy">Dairy</option>
+                        <option value="Produce">Produce</option>
+                        <option value="Meat & Seafood">Meat & Seafood</option>
+                        <option value="Bakery">Bakery</option>
+                        <option value="Pantry">Pantry</option>
+                        <option value="Frozen">Frozen</option>
+                        <option value="Beverages">Beverages</option>
+                        <option value="Other">Other</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -848,6 +882,7 @@ export default function Products() {
                           if (checked) {
                             setServingsPerPackageValue(1.0);
                             setServingSizeValue(parseFloat(capacityValue) || 1.0);
+                            setServingUnit(capacityUnit || 'pieces');
                             setCalorieMode('per_serving');
                           } else {
                             setCalorieMode('per_unit');

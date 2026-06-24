@@ -138,6 +138,45 @@ export default function Inventory() {
   const [storeSuggestions, setStoreSuggestions] = useState([]);
   const [locations, setLocations] = useState([]);
 
+  const [categories, setCategories] = useState([]);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch categories:', err);
+    }
+  };
+
+  const getDefaultStorageLocation = (catName) => {
+    let defaultLoc = 'Pantry';
+    if (catName) {
+      const matchedCategory = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
+      if (matchedCategory && matchedCategory.default_storage_location) {
+        const matchedLoc = locations.find(l => l.name.toLowerCase() === matchedCategory.default_storage_location.toLowerCase());
+        if (matchedLoc) {
+          return matchedLoc.name;
+        }
+      }
+      
+      const isCold = catName === 'Dairy' || catName === 'Meat & Seafood';
+      const targetSearch = isCold ? 'fridge' : 'pantry';
+      const matched = locations.find(l => l.name.toLowerCase() === targetSearch);
+      if (matched) {
+        defaultLoc = matched.name;
+      } else if (locations.length > 0) {
+        defaultLoc = locations[0].name;
+      }
+    } else if (locations.length > 0) {
+      defaultLoc = locations[0].name;
+    }
+    return defaultLoc;
+  };
+
   const fetchLocations = async () => {
     try {
       const res = await fetch('/api/locations');
@@ -210,14 +249,24 @@ export default function Inventory() {
     fetchInventoryAndProducts();
     fetchStores();
     fetchLocations();
+    fetchCategories();
   }, []);
 
   const handleOpenAdd = () => {
-    setProductId(products.length > 0 ? products[0].id : '');
+    const firstProdId = products.length > 0 ? products[0].id : '';
+    setProductId(firstProdId);
     setQuantity(1);
     setPrice('');
     setStoreLocation('');
-    setStorageLocation('Pantry');
+    
+    let defaultLoc = 'Pantry';
+    if (firstProdId) {
+      const firstProd = products.find(p => p.id === firstProdId);
+      if (firstProd) {
+        defaultLoc = getDefaultStorageLocation(firstProd.category);
+      }
+    }
+    setStorageLocation(defaultLoc);
     setPurchaseDate(new Date().toISOString().split('T')[0]);
     setExpirationDate('');
     setShowModal(true);
@@ -992,7 +1041,16 @@ export default function Inventory() {
                   <label className="block text-xs font-semibold text-slate-400">Select Product *</label>
                   <select 
                     value={productId} 
-                    onChange={(e) => setProductId(e.target.value)}
+                    onChange={(e) => {
+                      const newProdId = e.target.value;
+                      setProductId(newProdId);
+                      if (newProdId) {
+                        const selectedProd = products.find(p => p.id === parseInt(newProdId));
+                        if (selectedProd) {
+                          setStorageLocation(getDefaultStorageLocation(selectedProd.category));
+                        }
+                      }
+                    }}
                     className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
                     required
                   >

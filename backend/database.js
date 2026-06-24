@@ -202,6 +202,37 @@ export async function initDb() {
 
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at DESC, id DESC);`);
 
+  // 10. categories table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT UNIQUE NOT NULL,
+      default_storage_location TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name);`);
+
+  // Seed categories if empty
+  const catCount = await db.get('SELECT COUNT(*) as count FROM categories');
+  if (catCount.count === 0) {
+    console.log('Seeding initial categories...');
+    const defaultCategories = [
+      { name: 'Dairy', default_storage_location: 'Fridge' },
+      { name: 'Produce', default_storage_location: 'Fridge' },
+      { name: 'Meat & Seafood', default_storage_location: 'Fridge' },
+      { name: 'Bakery', default_storage_location: 'Pantry' },
+      { name: 'Pantry', default_storage_location: 'Pantry' },
+      { name: 'Frozen', default_storage_location: 'Freezer' },
+      { name: 'Beverages', default_storage_location: 'Pantry' },
+      { name: 'Other', default_storage_location: 'Pantry' }
+    ];
+    for (const cat of defaultCategories) {
+      await db.run('INSERT INTO categories (name, default_storage_location) VALUES (?, ?)', [cat.name, cat.default_storage_location]);
+    }
+  }
+
 
   // Seed storage locations if empty
   const locCount = await db.get('SELECT COUNT(*) as count FROM storage_locations');
