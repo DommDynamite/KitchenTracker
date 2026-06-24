@@ -15,6 +15,7 @@ export default function Products() {
   const [editingProduct, setEditingProduct] = useState(null);
   const [showChildProducts, setShowChildProducts] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [toast, setToast] = useState(null); // { message: string, type: 'success' | 'error' }
 
   // Form State
   const [name, setName] = useState('');
@@ -99,6 +100,14 @@ export default function Products() {
   useEffect(() => {
     fetchProducts();
   }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const handleOpenAdd = () => {
     setEditingProduct(null);
@@ -286,6 +295,12 @@ export default function Products() {
 
       if (res.ok) {
         setShowModal(false);
+        setToast({ 
+          message: editingProduct 
+            ? `Successfully updated "${name}"` 
+            : `Successfully added "${name}"`,
+          type: 'success'
+        });
         fetchProducts();
       } else {
         const errData = await res.json();
@@ -862,6 +877,13 @@ export default function Products() {
         }}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-[110] flex items-center gap-2.5 px-4 py-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-450 backdrop-blur-md shadow-2xl animate-slide-in-right">
+          <Check className="h-5 w-5 shrink-0" />
+          <span className="text-sm font-semibold">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }
