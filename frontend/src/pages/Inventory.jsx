@@ -534,11 +534,11 @@ export default function Inventory() {
 
   // Resolve group images after grouping is complete
   groupedInventory.forEach(g => {
-    const parentProduct = g.product_id !== g.items[0]?.product_id ? products.find(p => p.id === g.product_id) : null;
+    const groupProduct = products.find(p => p.id === g.product_id);
     
-    // 1. Try parent product's own image first
-    if (parentProduct && parentProduct.image_path) {
-      g.product_image = parentProduct.image_path;
+    // 1. Try group product's own image first (parent or standalone)
+    if (groupProduct && groupProduct.image_path) {
+      g.product_image = groupProduct.image_path;
       return;
     }
     
@@ -569,12 +569,6 @@ export default function Inventory() {
       return;
     }
 
-    // 4. Default to standalone product image if no parent
-    if (!parentProduct && g.items[0]?.product_image) {
-      g.product_image = g.items[0].product_image;
-      return;
-    }
-    
     g.product_image = null;
   });
 
