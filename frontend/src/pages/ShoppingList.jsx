@@ -2,6 +2,56 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Trash2, Check, X, RotateCw, ShoppingCart, ShoppingBag, Info, Store, PlusCircle, CheckSquare, Square
 } from 'lucide-react';
+import ProductModal from '../components/ProductModal';
+
+const PHYSICAL_UNITS = new Set([
+  'g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl_oz', 'cup', 'pint', 'quart', 'gallon', 'tbsp', 'tsp'
+]);
+
+function normalizeUnit(unit) {
+  if (!unit) return '';
+  const u = unit.toLowerCase().trim();
+  if (u === 'g' || u === 'gram' || u === 'grams') return 'g';
+  if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return 'kg';
+  if (u === 'oz' || u === 'ounce' || u === 'ounces') return 'oz';
+  if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return 'lb';
+  if (u === 'ml' || u === 'milliliter' || u === 'milliliters') return 'ml';
+  if (u === 'l' || u === 'liter' || u === 'liters') return 'l';
+  if (u === 'fl oz' || u === 'fl_oz' || u === 'floz' || u === 'fluid ounce' || u === 'fluid ounces') return 'fl_oz';
+  if (u === 'cup' || u === 'cups' || u === 'c') return 'cup';
+  if (u === 'pint' || u === 'pints' || u === 'pt') return 'pint';
+  if (u === 'quart' || u === 'quarts' || u === 'qt') return 'quart';
+  if (u === 'gallon' || u === 'gallons' || u === 'gal') return 'gallon';
+  if (u === 'tbsp' || u === 'tablespoon' || u === 'tablespoons') return 'tbsp';
+  if (u === 'tsp' || u === 'teaspoon' || u === 'teaspoons') return 'tsp';
+  return u;
+}
+
+function calculateDefaultPurchaseQty(amount, listUnit, targetProduct) {
+  if (!targetProduct) return amount;
+  
+  const normListUnit = normalizeUnit(listUnit);
+  const normSrvUnit = normalizeUnit(targetProduct.serving_unit);
+  
+  // Package capacity in physical units
+  const capacity = targetProduct.servings_per_package * targetProduct.serving_size;
+  
+  if (normListUnit === normSrvUnit && capacity > 0) {
+    return Math.ceil(amount / capacity);
+  }
+  
+  return amount;
+}
+
+function getPluralPackageType(type) {
+  if (!type) return 'packages';
+  const t = type.toLowerCase();
+  if (t === 'package') return 'packages';
+  if (t === 'box') return 'boxes';
+  if (t === 'pouch') return 'pouches';
+  if (t === 'jar') return 'jars';
+  return `${t}s`;
+}
 
 export default function ShoppingList() {
   const [manualList, setManualList] = useState([]);
@@ -24,6 +74,12 @@ export default function ShoppingList() {
   const [globalStorage, setGlobalStorage] = useState('Pantry');
   const [locations, setLocations] = useState([]);
   const [categories, setCategories] = useState([]);
+
+  // For registering a brand new product during checkout
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [registeringForItemIdx, setRegisteringForItemIdx] = useState(null);
+  const [prefilledParentIdForRegister, setPrefilledParentIdForRegister] = useState(null);
+  const [prefilledCategoryForRegister, setPrefilledCategoryForRegister] = useState('Pantry');
 
   const fetchCategories = async () => {
     try {
@@ -154,10 +210,29 @@ export default function ShoppingList() {
     const combined = [...selectedManual, ...selectedAuto].map(item => {
       const product = products.find(p => p.id === item.product_id);
       const catName = product ? product.category : null;
+      
+      // Determine the default child/active product
+      let selectedProduct = product;
+      if (product && product.is_parent === 1) {
+        // Find children of this parent
+        const children = products.filter(p => p.parent_product_id === product.id);
+        if (children.length > 0) {
+          selectedProduct = children[0];
+        }
+      }
+      
+      const defaultQty = calculateDefaultPurchaseQty(item.amount, item.unit, selectedProduct);
+
       return {
-        product_id: item.product_id,
-        name: item.product_name,
-        quantity: item.amount,
+        product_id: selectedProduct ? selectedProduct.id : item.product_id,
+        name: selectedProduct ? selectedProduct.name : item.product_name,
+        // The original shopping list details
+        original_product_id: item.product_id,
+        original_name: item.product_name,
+        original_amount: item.amount,
+        original_unit: item.unit,
+        // The purchase details
+        quantity: defaultQty,
         price: '',
         expiration_date: '',
         storage_location: getDefaultStorageLocation(catName),
@@ -180,6 +255,30 @@ export default function ShoppingList() {
     const updated = [...checkoutItems];
     updated[idx][field] = value;
     setCheckoutItems(updated);
+  };
+
+  const handleCheckoutProductChange = (idx, newProductId) => {
+    const updated = [...checkoutItems];
+    const targetProduct = products.find(p => p.id === newProductId);
+    
+    updated[idx].product_id = newProductId;
+    updated[idx].name = targetProduct ? targetProduct.name : updated[idx].original_name;
+    
+    const newQty = calculateDefaultPurchaseQty(updated[idx].original_amount, updated[idx].original_unit, targetProduct);
+    updated[idx].quantity = newQty;
+    
+    setCheckoutItems(updated);
+  };
+
+  const handleRegisteredProductAtCheckout = (newProduct) => {
+    setProducts(prev => [...prev, newProduct]);
+    if (registeringForItemIdx !== null) {
+      handleCheckoutProductChange(registeringForItemIdx, newProduct.id);
+    }
+    setRegisteringForItemIdx(null);
+    setPrefilledParentIdForRegister(null);
+    setPrefilledCategoryForRegister('Pantry');
+    setShowRegisterModal(false);
   };
 
   const handleGlobalStorageChange = (val) => {
@@ -537,63 +636,108 @@ export default function ShoppingList() {
 
               {/* Items Detail Grid */}
               <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
-                <h4 className="font-bold text-white text-xs">Fill details for each package bought</h4>
-                {checkoutItems.map((item, idx) => (
-                  <div key={idx} className="glass-card p-3 rounded-lg border border-slate-850 space-y-2.5">
-                    <div className="flex justify-between items-center font-bold text-white text-sm">
-                      <span>{item.name}</span>
-                    </div>
+                <h4 className="font-bold text-white text-xs text-left">Fill details for each package bought</h4>
+                {checkoutItems.map((item, idx) => {
+                  const originalProduct = products.find(p => p.id === item.original_product_id);
+                  const groupParentId = originalProduct ? (originalProduct.parent_product_id || originalProduct.id) : null;
+                  const alternatives = groupParentId ? products.filter(p => p.id === groupParentId || p.parent_product_id === groupParentId) : [];
+                  
+                  const targetProduct = products.find(p => p.id === item.product_id);
+                  
+                  let unitLabel = 'packages';
+                  if (targetProduct) {
+                    if (targetProduct.is_parent === 1) {
+                      unitLabel = targetProduct.default_unit || 'pieces';
+                    } else {
+                      unitLabel = getPluralPackageType(targetProduct.package_type);
+                    }
+                  }
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="block text-slate-500 font-medium">Quantity Bought</label>
-                        <input 
-                          type="number" 
-                          step="any"
-                          value={item.quantity} 
-                          onChange={(e) => handleCheckoutFieldChange(idx, 'quantity', e.target.value)}
-                          className="w-full p-2 rounded glass-input text-center font-semibold"
-                          required
-                        />
+                  return (
+                    <div key={idx} className="glass-card p-3 rounded-lg border border-slate-850 space-y-2.5 text-left">
+                      <div className="flex justify-between items-center font-bold text-slate-400 text-xs">
+                        <span>List request: <strong className="text-white">{item.original_name}</strong> ({item.original_amount} {item.original_unit})</span>
                       </div>
-                      <div className="space-y-1">
-                        <label className="block text-slate-500 font-medium">Price Paid ($)</label>
-                        <input 
-                          type="number" 
-                          step="any"
-                          placeholder="ea"
-                          value={item.price} 
-                          onChange={(e) => handleCheckoutFieldChange(idx, 'price', e.target.value)}
-                          className="w-full p-2 rounded glass-input text-center font-semibold"
-                          min="0"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="block text-slate-500 font-medium">Expiration Date</label>
-                        <input 
-                          type="date" 
-                          value={item.expiration_date} 
-                          onChange={(e) => handleCheckoutFieldChange(idx, 'expiration_date', e.target.value)}
-                          className="w-full p-2 rounded glass-input text-center text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="block text-slate-500 font-medium">Storage Destination</label>
-                        <select 
-                          value={item.storage_location || ''} 
-                          onChange={(e) => handleCheckoutFieldChange(idx, 'storage_location', e.target.value)}
-                          className="w-full p-2 rounded glass-input bg-slate-950 font-semibold text-xs"
-                          required
-                        >
-                          {locations.map(loc => (
-                            <option key={loc.id} value={loc.name}>{loc.name}</option>
-                          ))}
-                          {locations.length === 0 && <option value="Pantry">Pantry</option>}
-                        </select>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="space-y-1 col-span-2">
+                          <label className="block text-slate-500 font-medium">Brand/Product Purchased</label>
+                          <select
+                            value={item.product_id}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '__register_new__') {
+                                setRegisteringForItemIdx(idx);
+                                setPrefilledParentIdForRegister(groupParentId);
+                                setPrefilledCategoryForRegister(originalProduct?.category || 'Pantry');
+                                setShowRegisterModal(true);
+                              } else {
+                                handleCheckoutProductChange(idx, parseInt(val, 10));
+                              }
+                            }}
+                            className="w-full p-2 rounded glass-input bg-slate-950 font-semibold text-xs text-white"
+                          >
+                            {alternatives.map(alt => (
+                              <option key={alt.id} value={alt.id}>
+                                {alt.name} {alt.brand ? `(${alt.brand})` : ''} {alt.is_parent ? ' (Parent Category)' : ''}
+                              </option>
+                            ))}
+                            <option value="__register_new__" className="text-indigo-400 font-bold">
+                              + Register New Brand / Product...
+                            </option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block text-slate-500 font-medium">Qty Bought ({unitLabel})</label>
+                          <input 
+                            type="number" 
+                            step="any"
+                            value={item.quantity} 
+                            onChange={(e) => handleCheckoutFieldChange(idx, 'quantity', e.target.value)}
+                            className="w-full p-2 rounded glass-input text-center font-semibold text-white"
+                            required
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-slate-500 font-medium">Price Paid ($)</label>
+                          <input 
+                            type="number" 
+                            step="any"
+                            placeholder="ea"
+                            value={item.price} 
+                            onChange={(e) => handleCheckoutFieldChange(idx, 'price', e.target.value)}
+                            className="w-full p-2 rounded glass-input text-center font-semibold text-white"
+                            min="0"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-slate-500 font-medium">Expiration Date</label>
+                          <input 
+                            type="date" 
+                            value={item.expiration_date} 
+                            onChange={(e) => handleCheckoutFieldChange(idx, 'expiration_date', e.target.value)}
+                            className="w-full p-2 rounded glass-input text-center text-xs text-white"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-slate-500 font-medium">Storage Destination</label>
+                          <select 
+                            value={item.storage_location || ''} 
+                            onChange={(e) => handleCheckoutFieldChange(idx, 'storage_location', e.target.value)}
+                            className="w-full p-2 rounded glass-input bg-slate-950 font-semibold text-xs text-white"
+                            required
+                          >
+                            {locations.map(loc => (
+                              <option key={loc.id} value={loc.name}>{loc.name}</option>
+                            ))}
+                            {locations.length === 0 && <option value="Pantry">Pantry</option>}
+                          </select>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Action Buttons */}
@@ -616,6 +760,19 @@ export default function ShoppingList() {
           </div>
         </div>
       )}
+
+      <ProductModal
+        isOpen={showRegisterModal}
+        onClose={() => {
+          setShowRegisterModal(false);
+          setRegisteringForItemIdx(null);
+        }}
+        onSave={handleRegisteredProductAtCheckout}
+        categories={categories}
+        parentProducts={products.filter(p => p.is_parent === 1 || !p.parent_product_id)}
+        prefilledParentProductId={prefilledParentIdForRegister}
+        prefilledCategory={prefilledCategoryForRegister}
+      />
     </div>
   );
 }

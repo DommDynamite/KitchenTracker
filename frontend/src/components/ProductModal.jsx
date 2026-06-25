@@ -31,7 +31,9 @@ export default function ProductModal({
   editingProduct = null,
   prefilledBarcode = '',
   categories = [],
-  parentProducts = []
+  parentProducts = [],
+  prefilledParentProductId = '',
+  prefilledCategory = ''
 }) {
   const [name, setName] = useState('');
   const [barcode, setBarcode] = useState('');
@@ -154,10 +156,12 @@ export default function ProductModal({
       } else {
         setName('');
         setBarcode(prefilledBarcode || '');
-        setParentProductId('');
+        setParentProductId(prefilledParentProductId || '');
         setIsParent(false);
         setBrand('');
-        if (categories.length > 0) {
+        if (prefilledCategory) {
+          setCategory(prefilledCategory);
+        } else if (categories.length > 0) {
           const pantryCat = categories.find(c => c.name.toLowerCase() === 'pantry');
           setCategory(pantryCat ? pantryCat.name : categories[0].name);
         } else {
@@ -182,7 +186,7 @@ export default function ProductModal({
         setServingsPerPackageValue(1);
       }
     }
-  }, [isOpen, editingProduct, prefilledBarcode, categories]);
+  }, [isOpen, editingProduct, prefilledBarcode, categories, prefilledParentProductId, prefilledCategory]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
