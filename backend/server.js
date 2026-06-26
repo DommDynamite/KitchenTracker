@@ -401,8 +401,9 @@ app.post('/api/inventory', async (req, res) => {
     const ids = [];
 
     for (const pkgQty of packagesToInsert) {
-      const totalServings = pkgQty * product.servings_per_package;
-      const pkgPrice = pricePerUnit ? pkgQty * pricePerUnit : null;
+      const roundedPkgQty = Math.round(pkgQty * 100) / 100;
+      const totalServings = Math.round((roundedPkgQty * product.servings_per_package) * 100) / 100;
+      const pkgPrice = pricePerUnit ? Math.round((roundedPkgQty * pricePerUnit) * 100) / 100 : null;
 
       const result = await db.run(
         `INSERT INTO inventory_items (
@@ -410,7 +411,7 @@ app.post('/api/inventory', async (req, res) => {
           purchase_date, expiration_date, status
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          product_id, pkgQty, totalServings, totalServings, pkgPrice, store_location || null,
+          product_id, roundedPkgQty, totalServings, totalServings, pkgPrice, store_location || null,
           storage_location || null, purchase_date, expiration_date || null, 'unopened'
         ]
       );
@@ -460,9 +461,9 @@ app.put('/api/inventory/:id', async (req, res) => {
     const servingsPerPackage = product ? product.servings_per_package : 1.0;
     const productName = product ? product.name : 'Unknown Product';
 
-    let nextQuantity = quantity !== undefined ? parseFloat(quantity) : item.quantity;
-    let nextOriginalServings = nextQuantity * servingsPerPackage;
-    let nextServings = remaining_servings !== undefined ? parseFloat(remaining_servings) : item.remaining_servings;
+    let nextQuantity = quantity !== undefined ? Math.round(parseFloat(quantity) * 100) / 100 : item.quantity;
+    let nextOriginalServings = Math.round((nextQuantity * servingsPerPackage) * 100) / 100;
+    let nextServings = remaining_servings !== undefined ? Math.round(parseFloat(remaining_servings) * 100) / 100 : item.remaining_servings;
 
     // Safety check: remaining servings cannot exceed original servings
     if (nextServings > nextOriginalServings) {
@@ -551,7 +552,7 @@ app.post('/api/inventory/:id/consume', async (req, res) => {
     const product = await db.get('SELECT name FROM products WHERE id = ?', [item.product_id]);
     const productName = product ? product.name : 'Unknown Product';
 
-    let remaining = item.remaining_servings - servings;
+    let remaining = Math.round((item.remaining_servings - servings) * 100) / 100;
     let status = item.status;
     let opened_date = item.opened_date;
 
@@ -645,8 +646,8 @@ app.post('/api/inventory/product/:productId/consume', async (req, res) => {
       const remaining = item.remaining_servings;
       if (remaining <= 0) continue;
 
-      const deduct = Math.min(remaining, amountRemainingToDeduct);
-      const newRemainingServings = remaining - deduct;
+      const deduct = Math.round(Math.min(remaining, amountRemainingToDeduct) * 100) / 100;
+      const newRemainingServings = Math.round((remaining - deduct) * 100) / 100;
       
       let status = item.status;
       let opened_date = item.opened_date;
@@ -682,7 +683,7 @@ app.post('/api/inventory/product/:productId/consume', async (req, res) => {
       );
 
       totalConsumed += deduct;
-      amountRemainingToDeduct -= deduct;
+      amountRemainingToDeduct = Math.round((amountRemainingToDeduct - deduct) * 100) / 100;
     }
 
     if (changedItems.length > 0) {
@@ -1208,28 +1209,70 @@ app.post('/api/recipes/:id/make', async (req, res) => {
       // Custom ingredients sent by frontend
       for (const customIng of req.body.ingredients) {
         const product = await db.get(`
-          SELECT name as product_name, default_unit as prod_unit, serving_size as prod_serving_size, 
-                 serving_unit as prod_serving_unit, parent_product_id
+          SELECT id, name as product_name, default_unit as prod_unit, serving_size as prod_serving_size, 
+                 serving_unit as prod_serving_unit, parent_product_id, is_parent, package_type, servings_per_package
           FROM products WHERE id = ?
         `, [customIng.product_id]);
         if (product) {
+          const prodObj = {
+            id: product.id,
+            name: product.product_name,
+            is_parent: product.is_parent,
+            default_unit: product.prod_unit,
+            serving_size: product.prod_serving_size,
+            serving_unit: product.prod_serving_unit,
+            parent_product_id: product.parent_product_id,
+            package_type: product.package_type,
+            servings_per_package: product.servings_per_package
+          };
+          await enrichProductsWithInheritedProperties(db, prodObj);
           ingredients.push({
             product_id: customIng.product_id,
             amount: parseFloat(customIng.amount),
             unit: customIng.unit,
-            ...product
+            product_name: prodObj.name,
+            prod_unit: prodObj.default_unit,
+            prod_serving_size: prodObj.serving_size,
+            prod_serving_unit: prodObj.serving_unit,
+            parent_product_id: prodObj.parent_product_id,
+            package_type: prodObj.package_type,
+            servings_per_package: prodObj.servings_per_package
           });
         }
       }
     } else {
       // Fetch recipe ingredients
-      ingredients = await db.all(`
+      const rawIngredients = await db.all(`
         SELECT ri.*, p.name as product_name, p.default_unit as prod_unit, p.serving_size as prod_serving_size, 
-               p.serving_unit as prod_serving_unit, p.parent_product_id
+               p.serving_unit as prod_serving_unit, p.parent_product_id, p.is_parent, p.package_type, p.servings_per_package
         FROM recipe_ingredients ri
         JOIN products p ON ri.product_id = p.id
         WHERE ri.recipe_id = ?
       `, [req.params.id]);
+
+      for (const rawIng of rawIngredients) {
+        const prodObj = {
+          id: rawIng.product_id,
+          name: rawIng.product_name,
+          is_parent: rawIng.is_parent,
+          default_unit: rawIng.prod_unit,
+          serving_size: rawIng.prod_serving_size,
+          serving_unit: rawIng.prod_serving_unit,
+          parent_product_id: rawIng.parent_product_id,
+          package_type: rawIng.package_type,
+          servings_per_package: rawIng.servings_per_package
+        };
+        await enrichProductsWithInheritedProperties(db, prodObj);
+        ingredients.push({
+          ...rawIng,
+          prod_unit: prodObj.default_unit,
+          prod_serving_size: prodObj.serving_size,
+          prod_serving_unit: prodObj.serving_unit,
+          parent_product_id: prodObj.parent_product_id,
+          package_type: prodObj.package_type,
+          servings_per_package: prodObj.servings_per_package
+        });
+      }
     }
 
     const changedItems = [];
@@ -1240,14 +1283,17 @@ app.post('/api/recipes/:id/make', async (req, res) => {
         serving_size: ing.prod_serving_size,
         serving_unit: ing.prod_serving_unit,
         default_unit: ing.prod_unit,
-        parent_product_id: ing.parent_product_id
+        parent_product_id: ing.parent_product_id,
+        servings_per_package: ing.servings_per_package,
+        package_type: ing.package_type
       };
 
       // Find matching products: either the product itself, or if it is a parent product, its children too.
       const productsGroup = await db.all(`
-        SELECT id, serving_size, serving_unit, default_unit, servings_per_package, package_type FROM products 
+        SELECT id, serving_size, serving_unit, default_unit, servings_per_package, package_type, is_parent, parent_product_id FROM products 
         WHERE parent_product_id = ? OR id = ?
       `, [ing.product_id, ing.product_id]);
+      await enrichProductsWithInheritedProperties(db, productsGroup);
       
       const productIds = productsGroup.map(p => p.id);
 
@@ -1262,7 +1308,7 @@ app.post('/api/recipes/:id/make', async (req, res) => {
         ORDER BY expiration_date ASC, purchase_date ASC
       `, productIds);
 
-      let amountRemainingToDeduct = totalAmountNeededInProdUnit;
+      let amountRemainingToDeduct = Math.round(totalAmountNeededInProdUnit * 100) / 100;
 
       for (const item of inventoryItems) {
         if (amountRemainingToDeduct <= 0) break;
@@ -1301,7 +1347,7 @@ app.post('/api/recipes/:id/make', async (req, res) => {
           const deductInServingUnit = convertUnit(amountRemainingToDeduct, ing.prod_unit, itemServingUnit, itemProduct);
           const deductServings = deductInServingUnit / itemServingSize;
 
-          let newRemainingServings = item.remaining_servings - deductServings;
+          let newRemainingServings = Math.round((item.remaining_servings - deductServings) * 100) / 100;
           let status = 'opened';
           if (newRemainingServings <= 0) {
             newRemainingServings = 0;
@@ -1321,7 +1367,7 @@ app.post('/api/recipes/:id/make', async (req, res) => {
             [new Date().toISOString().split('T')[0], item.id]
           );
 
-          amountRemainingToDeduct -= remainingInProdUnit;
+          amountRemainingToDeduct = Math.round((amountRemainingToDeduct - remainingInProdUnit) * 100) / 100;
         }
       }
 
@@ -1486,8 +1532,9 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
       const pricePerUnit = item.price ? parseFloat(item.price) / qty : null;
 
       for (const pkgQty of packagesToInsert) {
-        const totalServings = pkgQty * product.servings_per_package;
-        const pkgPrice = pricePerUnit ? pkgQty * pricePerUnit : null;
+        const roundedPkgQty = Math.round(pkgQty * 100) / 100;
+        const totalServings = Math.round((roundedPkgQty * product.servings_per_package) * 100) / 100;
+        const pkgPrice = pricePerUnit ? Math.round((roundedPkgQty * pricePerUnit) * 100) / 100 : null;
         
         const insertResult = await db.run(
           `INSERT INTO inventory_items (
@@ -1495,7 +1542,7 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
             purchase_date, expiration_date, status
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            item.product_id, pkgQty, totalServings, totalServings, pkgPrice,
+            item.product_id, roundedPkgQty, totalServings, totalServings, pkgPrice,
             item.store_location || null, item.storage_location || 'Pantry', today, item.expiration_date || null, 'unopened'
           ]
         );

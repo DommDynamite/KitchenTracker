@@ -128,7 +128,10 @@ export function convertUnit(amount, fromUnit, toUnit, product = {}) {
 
   // Helper product settings
   const servingSize = product.serving_size || 1.0;
-  const servingUnit = normalizeUnit(product.serving_unit || product.default_unit || 'pieces');
+  let servingUnit = normalizeUnit(product.serving_unit || product.default_unit || 'pieces');
+  if (isPackageUnit(servingUnit, product)) {
+    servingUnit = 'servings';
+  }
 
   // Helper to convert within dimensions
   const convertMass = (val, from, to) => {
