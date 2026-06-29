@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Upload, Check, Layers, Package, Database } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 const PHYSICAL_UNITS = new Set([
   'g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl_oz', 'cup', 'pint', 'quart', 'gallon', 'tbsp', 'tsp'
@@ -33,8 +34,11 @@ export default function ProductModal({
   categories = [],
   parentProducts = [],
   prefilledParentProductId = '',
-  prefilledCategory = ''
+  prefilledCategory = '',
+  prefilledName = '',
+  prefilledBrand = ''
 }) {
+  const { showToast } = useToast();
   const [name, setName] = useState('');
   const [barcode, setBarcode] = useState('');
   const [parentProductId, setParentProductId] = useState('');
@@ -154,11 +158,11 @@ export default function ProductModal({
           setServingsPerPackageValue(sPkg);
         }
       } else {
-        setName('');
+        setName(prefilledName || '');
         setBarcode(prefilledBarcode || '');
         setParentProductId(prefilledParentProductId || '');
         setIsParent(false);
-        setBrand('');
+        setBrand(prefilledBrand || '');
         if (prefilledCategory) {
           setCategory(prefilledCategory);
         } else if (categories.length > 0) {
@@ -186,7 +190,7 @@ export default function ProductModal({
         setServingsPerPackageValue(1);
       }
     }
-  }, [isOpen, editingProduct, prefilledBarcode, categories, prefilledParentProductId, prefilledCategory]);
+  }, [isOpen, editingProduct, prefilledBarcode, categories, prefilledParentProductId, prefilledCategory, prefilledName, prefilledBrand]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -215,7 +219,7 @@ export default function ProductModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name || !defaultUnit) {
-      alert('Product Name and Default Unit are required.');
+      showToast('Product Name and Default Unit are required.', 'warning');
       return;
     }
 
@@ -298,12 +302,13 @@ export default function ProductModal({
       if (res.ok) {
         onSave({ id: editingProduct ? editingProduct.id : data.id, ...payload });
         onClose();
+        showToast('Product saved successfully!', 'success');
       } else {
-        alert(data.error || 'Failed to save product');
+        showToast(data.error || 'Failed to save product', 'error');
       }
     } catch (error) {
       console.error('Error saving product:', error);
-      alert('Network error saving product');
+      showToast('Network error saving product', 'error');
     }
   };
 
@@ -324,7 +329,15 @@ export default function ProductModal({
           {editingProduct ? 'Edit Product Details' : 'Register New Product'}
         </h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs text-slate-200">
+        <form 
+          onSubmit={handleSubmit} 
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+              e.preventDefault();
+            }
+          }}
+          className="space-y-4 text-xs text-slate-200"
+        >
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5 col-span-2">
               <label className="block text-slate-400 font-semibold">Product Name *</label>

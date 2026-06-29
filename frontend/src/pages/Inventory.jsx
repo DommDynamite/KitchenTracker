@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import InventoryModal from '../components/InventoryModal';
+import { useToast } from '../context/ToastContext';
 
 function addDays(dateStr, days) {
   const parts = dateStr.split('-');
@@ -107,10 +108,12 @@ function formatStockCompact(remainingServings, originalServings, productUnit, se
 }
 
 export default function Inventory() {
+  const { showToast } = useToast();
   const [inventory, setInventory] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [preselectedProductId, setPreselectedProductId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLocations, setSelectedLocations] = useState([]);
   const [filterExpiringSoon, setFilterExpiringSoon] = useState(false);
@@ -271,7 +274,7 @@ export default function Inventory() {
         fetchInventoryAndProducts();
       } else {
         const err = await res.json();
-        alert(`Error consuming portion: ${err.error}`);
+        showToast(`Error consuming portion: ${err.error}`, 'error');
       }
     } catch (error) {
       console.error('Error consuming portion:', error);
@@ -358,7 +361,7 @@ export default function Inventory() {
         fetchInventoryAndProducts();
       } else {
         const err = await res.json();
-        alert(`Error updating item: ${err.error}`);
+        showToast(`Error updating item: ${err.error}`, 'error');
       }
     } catch (error) {
       console.error('Error saving manual inventory edit:', error);
@@ -539,6 +542,37 @@ export default function Inventory() {
       }
     }
   });
+
+  // Keep editingGroup updated when inventory changes (e.g., after adding/deleting packages)
+  useEffect(() => {
+    if (showEditModal && editingGroup) {
+      const freshGroup = groupedInventory.find(g => g.product_id === editingGroup.product_id);
+      if (freshGroup) {
+        setEditingGroup(freshGroup);
+        if (selectedPackage) {
+          const freshPkg = freshGroup.items.find(item => item.id === selectedPackage.id);
+          if (freshPkg) {
+            setSelectedPackage(freshPkg);
+          } else {
+            // Selected package was deleted, select first item
+            const firstItem = freshGroup.items[0] || null;
+            setSelectedPackage(firstItem);
+            if (firstItem) {
+              setEditQuantity(firstItem.quantity);
+              setEditRemainingServings(firstItem.remaining_servings);
+              setEditStorageLocation(firstItem.storage_location || 'Pantry');
+              setEditExpirationDate(firstItem.expiration_date || '');
+            }
+          }
+        }
+      } else {
+        // Group is gone
+        setShowEditModal(false);
+        setEditingGroup(null);
+        setSelectedPackage(null);
+      }
+    }
+  }, [inventory]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1010,8 +1044,12 @@ export default function Inventory() {
 
       <InventoryModal
         isOpen={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={() => {
+          setShowModal(false);
+          setPreselectedProductId(null);
+        }}
         onSave={handleInventorySaved}
+        preselectedProductId={preselectedProductId}
         products={products}
         locations={locations}
         categories={categories}
@@ -1046,7 +1084,19 @@ export default function Inventory() {
 
             {/* Packages Sub-table */}
             <div className="space-y-2">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Package to Edit</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Package to Edit</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreselectedProductId(editingGroup.product_id);
+                    setShowModal(true);
+                  }}
+                  className="flex items-center gap-1 py-1.5 px-3 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 font-bold text-[10px] transition-colors border border-indigo-500/20 cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Package
+                </button>
+              </div>
               <div className="border border-slate-800 rounded-xl overflow-hidden max-h-[180px] overflow-y-auto bg-slate-950/40">
                 <table className="w-full text-left border-collapse text-[11px]">
                   <thead>
@@ -1145,24 +1195,9 @@ export default function Inventory() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  {/* Quantity (Packages) */}
-                  <div className="space-y-1.5">
-                    <label className="block text-slate-400 font-semibold">Package Quantity</label>
-                    <input 
-                      type="number" 
-                      step="any"
-                      value={editQuantity} 
-                      onChange={(e) => setEditQuantity(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input text-center font-bold text-white"
-                      min="0.1"
-                      required
-                    />
-                    <span className="text-[10px] text-slate-500 block">Usually 1.0 (individual package)</span>
-                  </div>
-                  
                   {/* Servings Remaining */}
                   {editingGroup.product_unit === '%' ? (
-                    <div className="space-y-1.5 col-span-1">
+                    <div className="space-y-1.5 col-span-2">
                       <label className="block text-slate-400 font-semibold">Percentage Remaining</label>
                       <div className="grid grid-cols-5 gap-1.5 pt-1">
                         {[100, 75, 50, 25, 0].map(pct => (
@@ -1183,14 +1218,14 @@ export default function Inventory() {
                       <span className="text-[10px] text-slate-500 block mt-1">Eyeball estimation of remaining vegetable</span>
                     </div>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 col-span-2">
                       <label className="block text-slate-400 font-semibold">Servings Remaining</label>
                       <input 
                         type="number" 
                         step="any"
                         value={editRemainingServings} 
                         onChange={(e) => setEditRemainingServings(e.target.value)}
-                        className="w-full p-2.5 rounded-lg glass-input text-center font-bold text-white"
+                        className="w-full p-2.5 rounded-lg glass-input text-center font-bold text-white text-xs"
                         min="0"
                         required
                       />

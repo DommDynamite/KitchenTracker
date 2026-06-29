@@ -3,6 +3,7 @@ import {
   Plus, Trash2, Check, X, RotateCw, ShoppingCart, ShoppingBag, Info, Store, PlusCircle, CheckSquare, Square
 } from 'lucide-react';
 import ProductModal from '../components/ProductModal';
+import { useToast } from '../context/ToastContext';
 
 const PHYSICAL_UNITS = new Set([
   'g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl_oz', 'cup', 'pint', 'quart', 'gallon', 'tbsp', 'tsp'
@@ -54,6 +55,7 @@ function getPluralPackageType(type) {
 }
 
 export default function ShoppingList() {
+  const { showToast } = useToast();
   const [manualList, setManualList] = useState([]);
   const [autoList, setAutoList] = useState([]);
   const [products, setProducts] = useState([]);
@@ -125,7 +127,7 @@ export default function ShoppingList() {
   const handleAddManualItem = async (e) => {
     e.preventDefault();
     if (!productId || !amount || !unit) {
-      alert('Product, Amount, and Unit are required.');
+      showToast('Product, Amount, and Unit are required.', 'warning');
       return;
     }
 
@@ -241,7 +243,7 @@ export default function ShoppingList() {
     });
 
     if (combined.length === 0) {
-      alert('Please check at least one item to purchase.');
+      showToast('Please check at least one item to purchase.', 'warning');
       return;
     }
 
@@ -314,10 +316,10 @@ export default function ShoppingList() {
         setShowCheckoutModal(false);
         setSelectedItems({});
         fetchShoppingListAndProducts();
-        alert('Items checked out! Inventory updated.');
+        showToast('Items checked out! Inventory updated.', 'success');
       } else {
         const err = await res.json();
-        alert(`Error completing purchase: ${err.error}`);
+        showToast(`Error completing purchase: ${err.error}`, 'error');
       }
     } catch (error) {
       console.error('Error checking out items:', error);

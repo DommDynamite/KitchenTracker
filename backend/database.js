@@ -237,6 +237,36 @@ export async function initDb() {
 
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name);`);
 
+  // 11. app_settings table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+
+  // 12. receipt_item_mappings table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS receipt_item_mappings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      raw_description TEXT UNIQUE NOT NULL,
+      product_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    );
+  `);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_receipt_item_mappings_desc ON receipt_item_mappings(raw_description);`);
+
+  // 13. receipt_ignored_items table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS receipt_ignored_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      raw_description TEXT UNIQUE NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_receipt_ignored_items_desc ON receipt_ignored_items(raw_description);`);
+
   // Seed categories if empty
   const catCount = await db.get('SELECT COUNT(*) as count FROM categories');
   if (catCount.count === 0) {

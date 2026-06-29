@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, ShoppingBag, Check } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 const PHYSICAL_UNITS = new Set([
   'g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl_oz', 'cup', 'pint', 'quart', 'gallon', 'tbsp', 'tsp'
@@ -34,6 +35,7 @@ export default function InventoryModal({
   categories = [],
   storeSuggestions = []
 }) {
+  const { showToast } = useToast();
   const [productId, setProductId] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [price, setPrice] = useState('');
@@ -102,13 +104,14 @@ export default function InventoryModal({
       if (res.ok) {
         onSave(payload);
         onClose();
+        showToast('Successfully logged item to inventory!', 'success');
       } else {
         const err = await res.json();
-        alert(`Error logging inventory: ${err.error}`);
+        showToast(`Error logging inventory: ${err.error}`, 'error');
       }
     } catch (error) {
       console.error('Error logging inventory:', error);
-      alert('Network error logging inventory');
+      showToast('Network error logging inventory', 'error');
     } finally {
       setLoading(false);
     }

@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 
 // Setup uploads folder
 const uploadsDir = path.join(__dirname, 'data', 'uploads');
@@ -926,6 +926,79 @@ app.delete('/api/categories/:id', async (req, res) => {
   }
 });
 
+
+// ----------------------------------------------------
+// SETTINGS ROUTES
+// ----------------------------------------------------
+
+// Get all settings
+app.get('/api/settings', async (req, res) => {
+  try {
+    const db = await getDb();
+    const rows = await db.all('SELECT key, value FROM app_settings');
+    const settings = {};
+    for (const row of rows) {
+      if (row.key === 'gemini_api_key' && row.value) {
+        settings[row.key] = 'REDACTED';
+      } else if (row.key === 'receipt_scanning_enabled') {
+        settings[row.key] = row.value === 'true';
+      } else {
+        settings[row.key] = row.value;
+      }
+    }
+    if (settings.receipt_scanning_enabled === undefined) {
+      settings.receipt_scanning_enabled = false;
+    }
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a setting
+app.post('/api/settings', async (req, res) => {
+  const { key, value } = req.body;
+  if (!key) {
+    return res.status(400).json({ error: 'key is required' });
+  }
+  try {
+    const db = await getDb();
+    if (key === 'gemini_api_key' && value === 'REDACTED') {
+      return res.json({ message: 'Settings unchanged' });
+    }
+    const stringValue = typeof value === 'boolean' ? String(value) : value;
+    await db.run(
+      'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
+      [key, stringValue]
+    );
+    res.json({ message: 'Setting updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get ignored items
+app.get('/api/settings/ignored', async (req, res) => {
+  try {
+    const db = await getDb();
+    const items = await db.all('SELECT * FROM receipt_ignored_items ORDER BY created_at DESC');
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete an ignored item
+app.delete('/api/settings/ignored/:id', async (req, res) => {
+  try {
+    const db = await getDb();
+    await db.run('DELETE FROM receipt_ignored_items WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Ignored item deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ----------------------------------------------------
 // RECIPE ROUTES
 // ----------------------------------------------------
@@ -1578,6 +1651,217 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
   } catch (err) {
     const db = await getDb();
     try { await db.run('ROLLBACK'); } catch (_) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ----------------------------------------------------
+// RECEIPT SCANNING ROUTES
+// ----------------------------------------------------
+
+app.post('/api/receipts/scan', async (req, res) => {
+  const { image } = req.body;
+  if (!image) {
+    return res.status(400).json({ error: 'Image data is required' });
+  }
+
+  try {
+    const db = await getDb();
+    
+    // Check if enabled and get key
+    const enabledSetting = await db.get("SELECT value FROM app_settings WHERE key = 'receipt_scanning_enabled'");
+    if (!enabledSetting || enabledSetting.value !== 'true') {
+      return res.status(400).json({ error: 'Receipt scanning is disabled in settings.' });
+    }
+
+    const keySetting = await db.get("SELECT value FROM app_settings WHERE key = 'gemini_api_key'");
+    if (!keySetting || !keySetting.value) {
+      return res.status(400).json({ error: 'Gemini API key is not configured.' });
+    }
+    const apiKey = keySetting.value;
+
+    const products = await db.all("SELECT id, name, brand, category FROM products");
+    const mappings = await db.all("SELECT raw_description, product_id FROM receipt_item_mappings");
+    const ignoredItems = await db.all("SELECT raw_description FROM receipt_ignored_items");
+    const ignoredSet = new Set(ignoredItems.map(i => i.raw_description.toLowerCase().trim()));
+
+    let base64Data = image;
+    let mimeType = 'image/jpeg';
+
+    if (image.startsWith('data:')) {
+      const match = image.match(/^data:([^;]+);base64,(.*)$/);
+      if (match) {
+        mimeType = match[1];
+        base64Data = match[2];
+      }
+    }
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Analyze this grocery receipt image. OCR and parse the list of items purchased.
+For each item, extract:
+- 'raw_description': The text description exactly as printed on the receipt.
+- 'expanded_description': Expand abbreviations to make it human-readable (e.g., "ORG WHL MLK 0.5G" -> "Organic Whole Milk 0.5 Gallon").
+- 'quantity': The number of items purchased (default to 1).
+- 'price': The total price paid for this item (as a float).
+- 'matched_product_id': Find the closest matching product ID from the registered products database list below.
+  * Be flexible: Match variations in names, brands, or sizes (e.g., "GV MILK" or "WHL MLK" should match "Great Value Whole Milk 1 Gal" or "Whole Milk").
+  * Brand association: Match brand abbreviations (e.g., "GV" -> "Great Value", "OV" -> "Organic Valley", "MSN" or "MS" -> "Mission").
+  * Use the historical user mappings list below as a strong lookup map: if the raw description matches a historical mapping's raw description, map it to the corresponding product_id.
+  * If no registered product resembles this item, set matched_product_id to null.
+- 'confidence': A decimal value between 0.0 and 1.0 representing how confident you are in both the OCR extraction AND the product match.
+  * A clear, unambiguous product match should have confidence >= 0.85.
+  * A fuzzy/guessed match should have confidence between 0.50 and 0.80.
+  * A raw item with no matching database product (matched_product_id = null) should have its OCR confidence (typically 0.80 to 1.00 depending on image legibility).
+  * Never default to 0.0 unless the text is completely unreadable.
+
+Here is the database of registered products:
+${JSON.stringify(products.map(p => ({ id: p.id, name: p.name, brand: p.brand || '', category: p.category || '' })))}
+
+Here are historical user mappings to assist your matches:
+${JSON.stringify(mappings.map(m => ({ raw: m.raw_description, product_id: m.product_id })))}
+
+Return a strictly formatted JSON array matching this schema:
+[
+  {
+    "raw_description": "text",
+    "expanded_description": "text",
+    "quantity": number,
+    "price": number,
+    "matched_product_id": number or null,
+    "confidence": number
+  }
+]`
+                },
+                {
+                  inlineData: {
+                    mimeType: mimeType,
+                    data: base64Data
+                  }
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json'
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Gemini API Error:', errorText);
+      return res.status(response.status).json({ error: `Gemini API returned error: ${response.statusText}` });
+    }
+
+    const resultData = await response.json();
+    const candidateText = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!candidateText) {
+      throw new Error('Invalid response from Gemini API');
+    }
+
+    let items = JSON.parse(candidateText.trim());
+    items = items.map(item => {
+      const rawLower = (item.raw_description || '').toLowerCase().trim();
+      return {
+        ...item,
+        ignored: ignoredSet.has(rawLower)
+      };
+    });
+
+    res.json(items);
+  } catch (err) {
+    console.error('Receipt parse failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/receipts/log', async (req, res) => {
+  const { items, ignoredRawDescriptions } = req.body;
+  if (!items || !Array.isArray(items)) {
+    return res.status(400).json({ error: 'items array is required' });
+  }
+
+  try {
+    const db = await getDb();
+    await db.run('BEGIN TRANSACTION');
+
+    const today = new Date().toISOString().split('T')[0];
+    const insertedIds = [];
+
+    for (const item of items) {
+      if (item.ignored || !item.product_id) continue;
+
+      let product = await db.get('SELECT * FROM products WHERE id = ?', [item.product_id]);
+      if (!product) continue;
+      await enrichProductsWithInheritedProperties(db, product);
+
+      const qty = parseFloat(item.quantity) || 1.0;
+      const servingsPerPackage = product.servings_per_package || 1.0;
+      const totalServings = Math.round((qty * servingsPerPackage) * 100) / 100;
+      const pricePerPackage = item.price ? Math.round((parseFloat(item.price) / qty) * 100) / 100 : null;
+
+      const insertResult = await db.run(
+        `INSERT INTO inventory_items (
+          product_id, quantity, original_servings, remaining_servings, price, store_location, storage_location,
+          purchase_date, expiration_date, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          item.product_id, qty, totalServings, totalServings, pricePerPackage,
+          item.store_location || null, item.storage_location || 'Pantry', today, item.expiration_date || null, 'unopened'
+        ]
+      );
+      insertedIds.push(insertResult.lastID);
+
+      if (item.raw_description) {
+        await db.run(
+          `INSERT OR REPLACE INTO receipt_item_mappings (raw_description, product_id) VALUES (?, ?)`,
+          [item.raw_description.trim(), item.product_id]
+        );
+      }
+    }
+
+    if (ignoredRawDescriptions && Array.isArray(ignoredRawDescriptions)) {
+      for (const desc of ignoredRawDescriptions) {
+        if (desc) {
+          await db.run(
+            `INSERT OR IGNORE INTO receipt_ignored_items (raw_description) VALUES (?)`,
+            [desc.trim()]
+          );
+        }
+      }
+    }
+
+    if (insertedIds.length > 0) {
+      await db.run(
+        `INSERT INTO activity_log (action_type, description, details) VALUES (?, ?, ?)`,
+        [
+          'purchase_shopping_list',
+          `Processed receipt purchases: logged ${insertedIds.length} items to inventory`,
+          JSON.stringify({
+            inserted_ids: insertedIds,
+            completed_list_ids: []
+          })
+        ]
+      );
+    }
+
+    await db.run('COMMIT');
+    res.json({ message: 'Receipt purchases logged successfully!', insertedIds });
+  } catch (err) {
+    const db = await getDb();
+    try { await db.run('ROLLBACK'); } catch (_) {}
+    console.error('Error logging receipt purchases:', err);
     res.status(500).json({ error: err.message });
   }
 });

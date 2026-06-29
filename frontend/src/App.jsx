@@ -20,8 +20,9 @@ import Recipes from './pages/Recipes';
 import ShoppingList from './pages/ShoppingList';
 import Scan from './pages/Scan';
 import SettingsPage from './pages/Settings';
+import { ToastProvider } from './context/ToastContext';
 
-function Navigation() {
+function Navigation({ settings }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -68,13 +69,14 @@ function Navigation() {
     };
   }, [navigate]);
 
+  const isReceiptEnabled = settings?.receipt_scanning_enabled === true || settings?.receipt_scanning_enabled === 'true';
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/inventory', label: 'Inventory', icon: ShoppingBag },
     { path: '/products', label: 'Products', icon: Database },
     { path: '/recipes', label: 'Recipes', icon: BookOpen },
     { path: '/shopping-list', label: 'Shopping List', icon: ShoppingCart },
-    { path: '/scan', label: 'Scan Barcode', icon: Camera },
+    { path: '/scan', label: isReceiptEnabled ? 'Scan' : 'Scan Barcode', icon: Camera },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -201,26 +203,49 @@ function Navigation() {
 }
 
 function App() {
-  return (
-    <Router>
-      <div className="flex flex-col md:flex-row min-h-screen">
-        {/* Navigation Layer */}
-        <Navigation />
+  const [settings, setSettings] = useState({
+    receipt_scanning_enabled: false,
+    gemini_api_key: ''
+  });
 
-        {/* Content Viewport */}
-        <main className="flex-1 p-4 sm:p-6 md:p-8 pb-20 md:pb-8 overflow-x-hidden">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/products" element={<Products />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/recipes" element={<Recipes />} />
-            <Route path="/shopping-list" element={<ShoppingList />} />
-            <Route path="/scan" element={<Scan />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
-        </main>
-      </div>
-    </Router>
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        setSettings(data);
+      }
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  return (
+    <ToastProvider>
+      <Router>
+        <div className="flex flex-col md:flex-row min-h-screen">
+          {/* Navigation Layer */}
+          <Navigation settings={settings} />
+
+          {/* Content Viewport */}
+          <main className="flex-1 p-4 sm:p-6 md:p-8 pb-20 md:pb-8 overflow-x-hidden">
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/products" element={<Products />} />
+              <Route path="/inventory" element={<Inventory />} />
+              <Route path="/recipes" element={<Recipes />} />
+              <Route path="/shopping-list" element={<ShoppingList />} />
+              <Route path="/scan" element={<Scan settings={settings} />} />
+              <Route path="/settings" element={<SettingsPage settings={settings} onSettingsChange={fetchSettings} />} />
+            </Routes>
+          </main>
+        </div>
+      </Router>
+    </ToastProvider>
   );
 }
 
