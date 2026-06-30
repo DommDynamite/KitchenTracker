@@ -1291,7 +1291,7 @@ export default function Recipes({ settings = {} }) {
 
         {/* Gemini Panel */}
         {settings?.receipt_scanning_enabled && showGeminiPanel && (
-          <div className="w-full lg:w-96 shrink-0 fixed lg:static inset-y-0 right-0 z-[60] lg:z-40 bg-slate-950/95 border-l border-slate-800 p-4 flex flex-col h-[100dvh] lg:h-[calc(100vh-14rem)] lg:rounded-2xl lg:bg-slate-950/40 lg:backdrop-blur-md shadow-2xl lg:shadow-none animate-slide-in-right">
+          <div className="w-full lg:w-96 shrink-0 fixed lg:static top-[53px] lg:top-auto bottom-[56px] lg:bottom-auto right-0 z-[35] lg:z-40 bg-slate-950/95 border-l border-slate-800 p-4 flex flex-col lg:h-[calc(100vh-14rem)] lg:rounded-2xl lg:bg-slate-950/40 lg:backdrop-blur-md shadow-2xl lg:shadow-none animate-slide-in-right">
             {/* Panel Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 mb-3 shrink-0">
               <div className="flex items-center gap-2">
