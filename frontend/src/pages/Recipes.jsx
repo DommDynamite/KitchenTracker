@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, ChevronRight, ChevronLeft, Check, X, 
   RotateCw, BookOpen, Clock, Heart, Users, Trash2, Upload, PlusCircle, MinusCircle, Layers,
-  List, Sliders, LayoutGrid, Edit, ChevronDown
+  List, Sliders, LayoutGrid, Edit, ChevronDown, Link, Link2Off, Sparkles, MessageSquare, Send, Trash
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
+import { useToast } from '../context/ToastContext';
 
-export default function Recipes() {
+export default function Recipes({ settings = {} }) {
   const [recipes, setRecipes] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,11 +35,19 @@ export default function Recipes() {
   const [editingRecipe, setEditingRecipe] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
+  const { showToast } = useToast();
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [toast, setToast] = useState(null); // { message: string, type: 'success' | 'error' }
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustedIngredients, setAdjustedIngredients] = useState([]);
+
+  // Gemini Chatbot Panel States
+  const [showGeminiPanel, setShowGeminiPanel] = useState(false);
+  const [chats, setChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Derived state for recipe steps to avoid array out-of-bounds/glitches during transition
   const stepIndexToUse = activeRecipeDetails?.steps && activeStepIndex < activeRecipeDetails.steps.length ? activeStepIndex : 0;
@@ -49,7 +58,7 @@ export default function Recipes() {
   const [recipeDesc, setRecipeDesc] = useState('');
   const [recipeServings, setRecipeServings] = useState(2);
   const [recipeImage, setRecipeImage] = useState('');
-  const [recipeIngredients, setRecipeIngredients] = useState([{ product_id: '', amount: '', unit: 'pieces' }]);
+  const [recipeIngredients, setRecipeIngredients] = useState([{ product_id: '', name: '', amount: '', unit: 'pieces', isUnlinked: false }]);
   const [recipeEquipment, setRecipeEquipment] = useState(['']);
   const [recipeSteps, setRecipeSteps] = useState([{ instruction: '', image_path: '' }]);
   const [uploadingImageIndex, setUploadingImageIndex] = useState(null); // 'main' or number for steps
@@ -75,13 +84,133 @@ export default function Recipes() {
     fetchRecipesAndProducts();
   }, []);
 
+  // Gemini chat operation helpers
+  const fetchChats = async () => {
+    try {
+      const recipeIdParam = activeRecipe ? `?recipe_id=${activeRecipe.id}` : '';
+      const res = await fetch(`/api/gemini/chats${recipeIdParam}`);
+      if (res.ok) {
+        const data = await res.json();
+        setChats(data);
+        if (data.length > 0) {
+          // Keep active chat selected if it still exists, otherwise select the first one
+          const activeExists = data.some(c => c.id === activeChatId);
+          if (!activeExists) {
+            setActiveChatId(data[0].id);
+            setChatMessages(data[0].messages || []);
+          }
+        } else {
+          setActiveChatId(null);
+          setChatMessages([]);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching chats:', err);
+    }
+  };
+
   useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => {
-      setToast(null);
-    }, 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
+    if (settings?.receipt_scanning_enabled && showGeminiPanel) {
+      fetchChats();
+    }
+  }, [activeRecipe, showGeminiPanel]);
+
+  const handleCreateChat = async () => {
+    try {
+      const res = await fetch('/api/gemini/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipe_id: activeRecipe ? activeRecipe.id : null,
+          title: activeRecipe ? `Chat about ${activeRecipe.name}` : `Culinary Chat ${new Date().toLocaleDateString()}`
+        })
+      });
+      if (res.ok) {
+        const newChat = await res.json();
+        setChats(prev => [newChat, ...prev]);
+        setActiveChatId(newChat.id);
+        setChatMessages([]);
+      }
+    } catch (err) {
+      console.error('Error creating chat:', err);
+    }
+  };
+
+  const handleDeleteChat = async (chatId, e) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`/api/gemini/chats/${chatId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setChats(prev => prev.filter(c => c.id !== chatId));
+        if (activeChatId === chatId) {
+          setActiveChatId(null);
+          setChatMessages([]);
+        }
+      }
+    } catch (err) {
+      console.error('Error deleting chat:', err);
+    }
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isGenerating) return;
+
+    let chatId = activeChatId;
+    if (!chatId) {
+      // Auto-create chat if none is active
+      try {
+        const createRes = await fetch('/api/gemini/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipe_id: activeRecipe ? activeRecipe.id : null,
+            title: activeRecipe ? `Chat about ${activeRecipe.name}` : `Culinary Chat ${new Date().toLocaleDateString()}`
+          })
+        });
+        if (createRes.ok) {
+          const newChat = await createRes.json();
+          setChats(prev => [newChat, ...prev]);
+          chatId = newChat.id;
+          setActiveChatId(chatId);
+        } else {
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to auto-create chat:', err);
+        return;
+      }
+    }
+
+    const textToSend = chatInput;
+    setChatInput('');
+    const optimisticMessages = [...chatMessages, { role: 'user', content: textToSend }];
+    setChatMessages(optimisticMessages);
+    setIsGenerating(true);
+
+    try {
+      const res = await fetch(`/api/gemini/chats/${chatId}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: textToSend })
+      });
+      if (res.ok) {
+        const updatedMessages = await res.json();
+        setChatMessages(updatedMessages);
+        setChats(prev => prev.map(c => c.id === chatId ? { ...c, messages: updatedMessages } : c));
+      } else {
+        const err = await res.json();
+        setChatMessages([...optimisticMessages, { role: 'model', content: `Error: ${err.error || 'Failed to send message'}` }]);
+      }
+    } catch (err) {
+      console.error('Error sending message:', err);
+      setChatMessages([...optimisticMessages, { role: 'model', content: 'Error: Network connection failed.' }]);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const fetchRecipeDetails = async (id) => {
     try {
@@ -106,6 +235,129 @@ export default function Recipes() {
     fetchRecipesAndProducts(); // refresh inventory stats in the list
   };
 
+  const extractRecipeJson = (text) => {
+    if (!text) return null;
+    const match = text.match(/```json\s*([\s\S]*?)\s*```/);
+    if (match) {
+      try {
+        return JSON.parse(match[1]);
+      } catch (_) {}
+    }
+    return null;
+  };
+
+  const renderMessageContent = (content) => {
+    if (!content) return null;
+    const jsonMatch = content.match(/([\s\S]*?)```json\s*([\s\S]*?)\s*```([\s\S]*)/);
+    if (jsonMatch) {
+      const beforeText = jsonMatch[1].trim();
+      const jsonStr = jsonMatch[2].trim();
+      const afterText = jsonMatch[3].trim();
+      
+      let recipeData = null;
+      try {
+        recipeData = JSON.parse(jsonStr);
+      } catch (e) {
+        // Fallback to plain text if JSON is invalid
+        return <p className="whitespace-pre-line">{content}</p>;
+      }
+
+      return (
+        <div className="space-y-3 text-left">
+          {beforeText && <p className="whitespace-pre-line">{beforeText}</p>}
+          
+          {/* Styled Recipe Card Preview */}
+          <div className="bg-slate-950/80 border border-indigo-500/20 rounded-xl p-3.5 space-y-3 my-2 shadow-inner text-left select-text">
+            <div className="flex items-start justify-between gap-2 border-b border-slate-850 pb-2">
+              <div>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/5 px-2 py-0.5 rounded border border-indigo-500/10">Recipe Preview</span>
+                <h4 className="text-sm font-bold text-white mt-1">{recipeData.name}</h4>
+              </div>
+              {recipeData.servings && (
+                <span className="text-[10px] bg-slate-800 text-slate-355 px-2 py-0.5 rounded border border-slate-700 font-semibold shrink-0">
+                  {recipeData.servings} servings
+                </span>
+              )}
+            </div>
+            
+            {recipeData.description && (
+              <p className="text-[11px] text-slate-400 italic line-clamp-3 leading-relaxed">{recipeData.description}</p>
+            )}
+
+            {recipeData.ingredients && recipeData.ingredients.length > 0 && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-450 block uppercase tracking-wider">Ingredients:</span>
+                <ul className="list-disc list-inside text-[11px] text-slate-300 space-y-0.5 pl-1">
+                  {recipeData.ingredients.map((ing, idx) => (
+                    <li key={idx} className="truncate">
+                      <span className="font-semibold text-slate-200">{ing.amount} {ing.unit}</span> {ing.name || ing.product_name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {recipeData.steps && recipeData.steps.length > 0 && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-450 block uppercase tracking-wider">Instructions:</span>
+                <ol className="list-decimal list-inside text-[11px] text-slate-300 space-y-1 pl-1">
+                  {recipeData.steps.map((step, idx) => {
+                    const instructionText = typeof step === 'object' ? step.instruction : step;
+                    return (
+                      <li key={idx} className="line-clamp-2 leading-relaxed">
+                        {instructionText}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            )}
+            
+            <button
+              type="button"
+              onClick={() => handleImportRecipe(recipeData)}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-emerald-400 font-bold text-xs cursor-pointer transition-all active:scale-95 mt-1"
+            >
+              <Plus className="h-3.5 w-3.5" /> Import to Recipes
+            </button>
+          </div>
+
+          {afterText && <p className="whitespace-pre-line">{afterText}</p>}
+        </div>
+      );
+    }
+    
+    return <p className="whitespace-pre-line">{content}</p>;
+  };
+
+  const handleImportRecipe = async (recipeJson) => {
+    try {
+      const res = await fetch('/api/recipes/import-resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(recipeJson)
+      });
+      if (res.ok) {
+        const resolved = await res.json();
+        setEditingRecipe(null);
+        setRecipeName(resolved.name);
+        setRecipeDesc(resolved.description);
+        setRecipeServings(resolved.servings);
+        setRecipeImage('');
+        setRecipeIngredients(resolved.ingredients);
+        setRecipeEquipment(resolved.equipment);
+        setRecipeSteps(resolved.steps);
+        setShowAddModal(true);
+        showToast('Recipe parsed successfully! Review and click Save.', 'success');
+      } else {
+        showToast('Failed to resolve recipe ingredients.', 'error');
+      }
+    } catch (err) {
+      console.error('Error importing recipe:', err);
+      showToast('Failed to parse recipe.', 'error');
+    }
+  };
+
   const handleMakeRecipe = async () => {
     if (!activeRecipeDetails) return;
     try {
@@ -114,11 +366,11 @@ export default function Recipes() {
       });
       const data = await res.json();
       if (res.ok) {
-        setToast({ message: data.message, type: 'success' });
+        showToast(data.message, 'success');
         // Refresh details (which updates ingredient stock status)
         fetchRecipeDetails(activeRecipeDetails.recipe.id);
       } else {
-        setToast({ message: `Error making recipe: ${data.error}`, type: 'error' });
+        showToast(`Error making recipe: ${data.error}`, 'error');
       }
     } catch (error) {
       console.error('Error consuming recipe ingredients:', error);
@@ -180,11 +432,11 @@ export default function Recipes() {
             : item
         ));
       } else {
-        setToast({ message: `Error converting unit: ${data.error}`, type: 'error' });
+        showToast(`Error converting unit: ${data.error}`, 'error');
       }
     } catch (err) {
       console.error('Error converting unit:', err);
-      setToast({ message: 'Failed to convert unit.', type: 'error' });
+      showToast('Failed to convert unit.', 'error');
     }
   };
 
@@ -203,15 +455,15 @@ export default function Recipes() {
       });
       const data = await res.json();
       if (res.ok) {
-        setToast({ message: data.message, type: 'success' });
+        showToast(data.message, 'success');
         setShowAdjustModal(false);
         fetchRecipeDetails(activeRecipeDetails.recipe.id);
       } else {
-        setToast({ message: `Error making recipe: ${data.error}`, type: 'error' });
+        showToast(`Error making recipe: ${data.error}`, 'error');
       }
     } catch (err) {
       console.error('Error making recipe:', err);
-      setToast({ message: 'Failed to consume ingredients.', type: 'error' });
+      showToast('Failed to consume ingredients.', 'error');
     }
   };
 
@@ -353,14 +605,14 @@ export default function Recipes() {
       setShowAddModal(true);
     } catch (error) {
       console.error('Error fetching recipe details for edit:', error);
-      setToast({ message: 'Failed to load recipe details for editing.', type: 'error' });
+      showToast('Failed to load recipe details for editing.', 'error');
     }
   };
 
   const handleSaveRecipe = async (e) => {
     e.preventDefault();
-    if (!recipeName || recipeIngredients.some(i => !i.product_id || !i.amount)) {
-      setToast({ message: 'Recipe name and ingredients are required.', type: 'error' });
+    if (!recipeName || recipeIngredients.some(i => (i.isUnlinked ? !i.name : !i.product_id) || !i.amount)) {
+      showToast('Recipe name and ingredient details are required.', 'error');
       return;
     }
 
@@ -370,7 +622,8 @@ export default function Recipes() {
       servings: parseFloat(recipeServings) || 2,
       image_path: recipeImage || null,
       ingredients: recipeIngredients.map(i => ({
-        product_id: parseInt(i.product_id),
+        product_id: i.isUnlinked ? null : parseInt(i.product_id),
+        name: i.isUnlinked ? i.name : null,
         amount: parseFloat(i.amount),
         unit: i.unit
       })),
@@ -391,9 +644,10 @@ export default function Recipes() {
         setShowAddModal(false);
         setEditingRecipe(null);
         fetchRecipesAndProducts();
+        showToast('Recipe saved successfully!', 'success');
       } else {
         const err = await res.json();
-        setToast({ message: `Error saving recipe: ${err.error}`, type: 'error' });
+        showToast(`Error saving recipe: ${err.error}`, 'error');
       }
     } catch (error) {
       console.error('Error saving recipe:', error);
@@ -454,40 +708,73 @@ export default function Recipes() {
             </h1>
             <p className="text-slate-400 mt-1">Design recipes, checklist prep items, and auto-consume ingredients from stock.</p>
           </div>
-          <button 
-            onClick={() => {
-              setEditingRecipe(null);
-              setRecipeName('');
-              setRecipeDesc('');
-              setRecipeServings(2);
-              setRecipeImage('');
-              setRecipeIngredients([{ product_id: '', amount: '', unit: 'pieces' }]);
-              setRecipeEquipment(['']);
-              setRecipeSteps([{ instruction: '', image_path: '' }]);
-              setShowAddModal(true);
-            }}
-            className="flex items-center justify-center gap-2 rounded-lg bg-gradient-indigo px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-transform active:scale-95 hover:opacity-90"
-          >
-            <Plus className="h-4.5 w-4.5" /> Create Recipe
-          </button>
+          <div className="flex items-center gap-3">
+            {settings?.receipt_scanning_enabled && (
+              <button
+                type="button"
+                onClick={() => setShowGeminiPanel(!showGeminiPanel)}
+                className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer ${
+                  showGeminiPanel
+                    ? 'bg-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] border border-indigo-400/30'
+                    : 'bg-slate-900 border border-slate-700/80 text-indigo-400 hover:border-indigo-500/50'
+                }`}
+              >
+                <Sparkles className="h-4.5 w-4.5" />
+                {showGeminiPanel ? 'Close Gemini Assistant' : 'Ask Gemini Assistant'}
+              </button>
+            )}
+            <button 
+              onClick={() => {
+                setEditingRecipe(null);
+                setRecipeName('');
+                setRecipeDesc('');
+                setRecipeServings(2);
+                setRecipeImage('');
+                setRecipeIngredients([{ product_id: '', name: '', amount: '', unit: 'pieces', isUnlinked: false }]);
+                setRecipeEquipment(['']);
+                setRecipeSteps([{ instruction: '', image_path: '' }]);
+                setShowAddModal(true);
+              }}
+              className="flex items-center justify-center gap-2 rounded-lg bg-gradient-indigo px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-transform active:scale-95 hover:opacity-90"
+            >
+              <Plus className="h-4.5 w-4.5" /> Create Recipe
+            </button>
+          </div>
         </div>
       )}
 
       {/* Detail Page Header */}
       {activeRecipe && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-3">
           <button 
             onClick={handleCloseRecipe}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-xs font-semibold text-slate-300 transition-colors"
           >
             <ChevronLeft className="h-4.5 w-4.5" /> Back to Recipes
           </button>
+
+          {settings?.receipt_scanning_enabled && (
+            <button
+              type="button"
+              onClick={() => setShowGeminiPanel(!showGeminiPanel)}
+              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                showGeminiPanel
+                  ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.3)] border border-indigo-400/25'
+                  : 'bg-slate-900 border border-slate-700 text-indigo-400 hover:border-indigo-500/50'
+              }`}
+            >
+              <Sparkles className="h-4 w-4" />
+              {showGeminiPanel ? 'Close Assistant' : 'Ask Gemini about Recipe'}
+            </button>
+          )}
         </div>
       )}
 
-      {/* Main Container */}
-      {!activeRecipe ? (
-        <>
+      {/* Main Layout Container */}
+      <div className="flex flex-col lg:flex-row gap-6 items-start relative min-h-[calc(100vh-14rem)] w-full">
+        <div className="flex-1 min-w-0 space-y-6 w-full">
+          {!activeRecipe ? (
+            <>
           {/* Controls Bar */}
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between glass-panel p-4 rounded-xl">
             {/* Search and Filter */}
@@ -817,22 +1104,28 @@ export default function Recipes() {
                       <span className="font-semibold text-white text-sm">{ing.product_name}</span>
                       <span className="text-xs text-slate-400 block mt-0.5">
                         Required: {ing.amount} {ing.unit} 
-                        {ing.unit !== ing.prod_unit && ` (converts to ~${ing.requiredInProdUnit.toFixed(1)} ${ing.prod_unit})`}
+                        {ing.product_id && ing.unit !== ing.prod_unit && ` (converts to ~${ing.requiredInProdUnit.toFixed(1)} ${ing.prod_unit})`}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <span className="text-xs text-slate-500 block">In stock</span>
-                        <span className={`text-xs font-bold ${ing.inStock ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {ing.availableAmount.toFixed(1)} {ing.prod_unit}
-                        </span>
+                    {ing.product_id ? (
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <span className="text-xs text-slate-500 block">In stock</span>
+                          <span className={`text-xs font-bold ${ing.inStock ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {ing.availableAmount.toFixed(1)} {ing.prod_unit}
+                          </span>
+                        </div>
+                        <div className={`p-1.5 rounded-full ${
+                          ing.inStock ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                        }`}>
+                          {ing.inStock ? <Check className="h-4.5 w-4.5" /> : <X className="h-4.5 w-4.5" />}
+                        </div>
                       </div>
-                      <div className={`p-1.5 rounded-full ${
-                        ing.inStock ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                      }`}>
-                        {ing.inStock ? <Check className="h-4.5 w-4.5" /> : <X className="h-4.5 w-4.5" />}
-                      </div>
-                    </div>
+                    ) : (
+                      <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700 font-semibold select-none">
+                        Not Tracked
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -994,6 +1287,139 @@ export default function Recipes() {
           </div>
         </div>
       )}
+    </div>
+
+        {/* Gemini Panel */}
+        {settings?.receipt_scanning_enabled && showGeminiPanel && (
+          <div className="w-full lg:w-96 shrink-0 fixed lg:static inset-y-0 right-0 z-40 bg-slate-950/95 border-l border-slate-800 p-4 flex flex-col h-full lg:h-[calc(100vh-14rem)] lg:rounded-2xl lg:bg-slate-950/40 lg:backdrop-blur-md shadow-2xl lg:shadow-none animate-slide-in-right">
+            {/* Panel Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 mb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4.5 w-4.5 text-indigo-400" />
+                <span className="font-bold text-white text-sm">Gemini Assistant</span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowGeminiPanel(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+
+            {/* Chat Selection Row */}
+            <div className="flex gap-2 mb-3 shrink-0">
+              <select
+                value={activeChatId || ''}
+                onChange={(e) => {
+                  const id = e.target.value ? parseInt(e.target.value) : null;
+                  setActiveChatId(id);
+                  if (id) {
+                    const selectedChat = chats.find(c => c.id === id);
+                    setChatMessages(selectedChat?.messages || []);
+                  } else {
+                    setChatMessages([]);
+                  }
+                }}
+                className="flex-1 p-2 rounded glass-input bg-slate-900 text-slate-200 text-xs font-semibold cursor-pointer"
+              >
+                <option value="">-- Select Chat Session --</option>
+                {chats.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleCreateChat}
+                className="p-2 rounded bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-400 font-bold text-xs cursor-pointer transition-colors"
+                title="Start new chat session"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+              {activeChatId && (
+                <button
+                  type="button"
+                  onClick={(e) => handleDeleteChat(activeChatId, e)}
+                  className="p-2 rounded bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 font-bold text-xs cursor-pointer transition-colors"
+                  title="Delete active chat session"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Messages Viewport */}
+            <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 mb-3 scroll-smooth">
+              {chatMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center p-6 text-slate-400 space-y-3">
+                  <MessageSquare className="h-10 w-10 text-slate-600 animate-pulse" />
+                  <div>
+                    <h5 className="font-bold text-slate-300 text-xs">No active conversation</h5>
+                    <p className="text-[10px] text-slate-500 max-w-xs mt-1">
+                      Start a chat to ask Gemini for recipe suggestions based on your inventory, or ask details about the open recipe.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCreateChat}
+                    className="py-1.5 px-3 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/25 text-indigo-450 font-bold text-xs cursor-pointer transition-all"
+                  >
+                    Start Chatting
+                  </button>
+                </div>
+              ) : (
+                chatMessages.map((msg, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`flex flex-col max-w-[85%] ${msg.role === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'}`}
+                  >
+                    <div className={`p-3 rounded-xl text-xs leading-relaxed select-text ${
+                      msg.role === 'user'
+                        ? 'bg-indigo-600 text-white rounded-br-none shadow-md'
+                        : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-none'
+                    }`}>
+                      {renderMessageContent(msg.content)}
+                    </div>
+                  </div>
+                ))
+              )}
+              {isGenerating && (
+                <div className="flex flex-col max-w-[85%] mr-auto items-start animate-pulse">
+                  <div className="p-3 rounded-xl text-xs bg-slate-900 border border-slate-800 text-slate-400 rounded-bl-none flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <span>Gemini is thinking...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input Row */}
+            <form onSubmit={handleSendMessage} className="flex gap-2 shrink-0 border-t border-slate-850 pt-3">
+              <input
+                type="text"
+                placeholder={activeRecipe ? "Ask about this recipe..." : "Ask Gemini about inventory..."}
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                disabled={isGenerating}
+                className="flex-1 p-2 rounded-lg glass-input text-xs"
+              />
+              <button
+                type="submit"
+                disabled={isGenerating || !chatInput.trim()}
+                className="p-2 rounded-lg bg-gradient-indigo text-white font-bold text-xs cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
 
       {/* Add Recipe Modal */}
       {showAddModal && (
@@ -1084,30 +1510,63 @@ export default function Recipes() {
                 </div>
                 {recipeIngredients.map((ing, idx) => (
                   <div key={idx} className="flex gap-2 items-center">
-                    <select 
-                      value={ing.product_id}
-                      onChange={(e) => handleIngredientChange(idx, 'product_id', e.target.value)}
-                      className="flex-1 p-2 rounded glass-input bg-slate-900 text-slate-200"
+                    {ing.isUnlinked ? (
+                      <input 
+                        type="text" 
+                        placeholder="Ingredient name (e.g. Cumin)"
+                        value={ing.name || ''}
+                        onChange={(e) => handleIngredientChange(idx, 'name', e.target.value)}
+                        className="flex-1 p-2 rounded glass-input text-slate-200 text-xs"
+                      />
+                    ) : (
+                      <select 
+                        value={ing.product_id}
+                        onChange={(e) => handleIngredientChange(idx, 'product_id', e.target.value)}
+                        className="flex-1 p-2 rounded glass-input bg-slate-900 text-slate-200 text-xs"
+                      >
+                        <option value="">-- Select Product --</option>
+                        {products.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} {p.brand ? `(${p.brand})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    
+                    {/* Toggle Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextState = !ing.isUnlinked;
+                        handleIngredientChange(idx, 'isUnlinked', nextState);
+                        if (nextState) {
+                          handleIngredientChange(idx, 'product_id', '');
+                        } else {
+                          handleIngredientChange(idx, 'name', '');
+                        }
+                      }}
+                      className={`p-2 rounded border cursor-pointer transition-colors ${
+                        ing.isUnlinked
+                          ? 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/20 text-amber-400'
+                          : 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-400'
+                      }`}
+                      title={ing.isUnlinked ? "Unlinked (Click to link to registered product)" : "Linked (Click to use custom text spice)"}
                     >
-                      <option value="">-- Select Product --</option>
-                      {products.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} {p.brand ? `(${p.brand})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                      {ing.isUnlinked ? <Link2Off className="h-4 w-4" /> : <Link className="h-4 w-4" />}
+                    </button>
+
                     <input 
                       type="number" 
                       step="any"
                       placeholder="Amt"
                       value={ing.amount}
                       onChange={(e) => handleIngredientChange(idx, 'amount', e.target.value)}
-                      className="w-16 p-2 rounded glass-input text-center"
+                      className="w-16 p-2 rounded glass-input text-center text-xs"
                     />
                     <select 
                       value={ing.unit}
                       onChange={(e) => handleIngredientChange(idx, 'unit', e.target.value)}
-                      className="w-24 p-2 rounded glass-input bg-slate-900"
+                      className="w-24 p-2 rounded glass-input bg-slate-900 text-xs"
                     >
                       <option value="g">g</option>
                       <option value="ml">ml</option>
@@ -1356,17 +1815,6 @@ export default function Recipes() {
         }}
         onCancel={() => setDeleteConfirm(null)}
       />
-
-      {toast && (
-        <div className={`fixed bottom-6 right-6 z-[110] flex items-center gap-2.5 px-4 py-3 rounded-xl border backdrop-blur-md shadow-2xl animate-slide-in-right ${
-          toast.type === 'error' 
-            ? 'border-rose-500/30 bg-rose-500/10 text-rose-450' 
-            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-450'
-        }`}>
-          {toast.type === 'error' ? <X className="h-5 w-5 shrink-0" /> : <Check className="h-5 w-5 shrink-0" />}
-          <span className="text-sm font-semibold">{toast.message}</span>
-        </div>
-      )}
     </div>
   );
 }

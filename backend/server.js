@@ -1018,7 +1018,9 @@ app.get('/api/recipes', async (req, res) => {
       if (!recipeIngredientsMap[ing.recipe_id]) {
         recipeIngredientsMap[ing.recipe_id] = [];
       }
-      recipeIngredientsMap[ing.recipe_id].push(ing.product_id);
+      if (ing.product_id) {
+        recipeIngredientsMap[ing.recipe_id].push(ing.product_id);
+      }
     }
     
     // Enrich recipes with their ingredient product IDs
@@ -1053,27 +1055,37 @@ app.get('/api/recipes/:id', async (req, res) => {
     `, [recipe.id]);
 
     if (ingredients.length > 0) {
-      const productIds = ingredients.map(i => i.product_id);
-      const referencedProducts = await db.all(`
-        SELECT * FROM products WHERE id IN (${productIds.map(() => '?').join(',')})
-      `, productIds);
+      const productIds = ingredients.filter(i => i.product_id).map(i => i.product_id);
+      if (productIds.length > 0) {
+        const referencedProducts = await db.all(`
+          SELECT * FROM products WHERE id IN (${productIds.map(() => '?').join(',')})
+        `, productIds);
 
-      await enrichProductsWithInheritedProperties(db, referencedProducts);
+        await enrichProductsWithInheritedProperties(db, referencedProducts);
 
-      // Map back to ingredients
-      ingredients.forEach(ing => {
-        const p = referencedProducts.find(prod => prod.id === ing.product_id);
-        if (p) {
-          ing.product_name = p.name;
-          ing.prod_unit = p.default_unit;
-          ing.prod_serving_size = p.serving_size;
-          ing.prod_serving_unit = p.serving_unit;
-          ing.parent_product_id = p.parent_product_id;
-          ing.calories_per_serving = p.calories_per_serving;
-          ing.servings_per_package = p.servings_per_package;
-          ing.package_type = p.package_type;
-        }
-      });
+        // Map back to ingredients
+        ingredients.forEach(ing => {
+          if (ing.product_id) {
+            const p = referencedProducts.find(prod => prod.id === ing.product_id);
+            if (p) {
+              ing.product_name = p.name;
+              ing.prod_unit = p.default_unit;
+              ing.prod_serving_size = p.serving_size;
+              ing.prod_serving_unit = p.serving_unit;
+              ing.parent_product_id = p.parent_product_id;
+              ing.calories_per_serving = p.calories_per_serving;
+              ing.servings_per_package = p.servings_per_package;
+              ing.package_type = p.package_type;
+            }
+          } else {
+            ing.product_name = ing.name || 'Unlinked Ingredient';
+          }
+        });
+      } else {
+        ingredients.forEach(ing => {
+          ing.product_name = ing.name || 'Unlinked Ingredient';
+        });
+      }
     }
 
     let totalCalories = 0;
@@ -1081,38 +1093,48 @@ app.get('/api/recipes/:id', async (req, res) => {
     // Check stock for each ingredient
     const stockLevels = await getStockLevels();
     const enrichedIngredients = ingredients.map(ing => {
-      // Build dummy product object for unit converter
-      const productForConv = {
-        serving_size: ing.prod_serving_size,
-        serving_unit: ing.prod_serving_unit,
-        default_unit: ing.prod_unit,
-        servings_per_package: ing.servings_per_package,
-        package_type: ing.package_type
-      };
-
-      // Calculate servings needed and add to total calories
-      const servingsNeeded = convertUnit(ing.amount, ing.unit, 'servings', productForConv);
-      const calories = servingsNeeded * (ing.calories_per_serving || 0);
-      totalCalories += calories;
-
-      // Find matching product in stockLevels
-      let inStockAmount = 0;
-      const matchedStock = stockLevels.find(s => s.productId === ing.product_id);
-      
-      if (matchedStock) {
-        // Matched stock contains parent product's cumulative stock
-        // Convert recipe ingredient amount from ingredient unit to parent's default unit
-        const ingAmountInProdUnit = convertUnit(ing.amount, ing.unit, ing.prod_unit, productForConv);
-        inStockAmount = matchedStock.currentStock;
-        
-        return {
-          ...ing,
-          inStock: inStockAmount >= ingAmountInProdUnit,
-          availableAmount: inStockAmount,
-          requiredInProdUnit: ingAmountInProdUnit
+      if (ing.product_id) {
+        // Build dummy product object for unit converter
+        const productForConv = {
+          serving_size: ing.prod_serving_size,
+          serving_unit: ing.prod_serving_unit,
+          default_unit: ing.prod_unit,
+          servings_per_package: ing.servings_per_package,
+          package_type: ing.package_type
         };
+
+        // Calculate servings needed and add to total calories
+        const servingsNeeded = convertUnit(ing.amount, ing.unit, 'servings', productForConv);
+        const calories = servingsNeeded * (ing.calories_per_serving || 0);
+        totalCalories += calories;
+
+        // Find matching product in stockLevels
+        let inStockAmount = 0;
+        const matchedStock = stockLevels.find(s => s.productId === ing.product_id);
+        
+        if (matchedStock) {
+          // Matched stock contains parent product's cumulative stock
+          // Convert recipe ingredient amount from ingredient unit to parent's default unit
+          const ingAmountInProdUnit = convertUnit(ing.amount, ing.unit, ing.prod_unit, productForConv);
+          inStockAmount = matchedStock.currentStock;
+          
+          return {
+            ...ing,
+            inStock: inStockAmount >= ingAmountInProdUnit,
+            availableAmount: inStockAmount,
+            requiredInProdUnit: ingAmountInProdUnit
+          };
+        } else {
+          // Points to a child product or product that is not a parent
+          return {
+            ...ing,
+            inStock: false,
+            availableAmount: 0,
+            requiredInProdUnit: ing.amount
+          };
+        }
       } else {
-        // Points to a child product or product that is not a parent
+        // Unlinked ingredient
         return {
           ...ing,
           inStock: false,
@@ -1173,8 +1195,8 @@ app.post('/api/recipes', async (req, res) => {
     // Insert ingredients
     for (const ing of ingredients) {
       await db.run(
-        'INSERT INTO recipe_ingredients (recipe_id, product_id, amount, unit) VALUES (?, ?, ?, ?)',
-        [recipeId, ing.product_id, ing.amount, ing.unit]
+        'INSERT INTO recipe_ingredients (recipe_id, product_id, amount, unit, name) VALUES (?, ?, ?, ?, ?)',
+        [recipeId, ing.product_id || null, ing.amount, ing.unit, ing.name || null]
       );
     }
 
@@ -1242,8 +1264,8 @@ app.put('/api/recipes/:id', async (req, res) => {
     // Insert updated ingredients
     for (const ing of ingredients) {
       await db.run(
-        'INSERT INTO recipe_ingredients (recipe_id, product_id, amount, unit) VALUES (?, ?, ?, ?)',
-        [id, ing.product_id, ing.amount, ing.unit]
+        'INSERT INTO recipe_ingredients (recipe_id, product_id, amount, unit, name) VALUES (?, ?, ?, ?, ?)',
+        [id, ing.product_id || null, ing.amount, ing.unit, ing.name || null]
       );
     }
 
@@ -2024,6 +2046,268 @@ app.post('/api/activity-log/:id/undo', async (req, res) => {
   } catch (err) {
     const db = await getDb();
     try { await db.run('ROLLBACK'); } catch (_) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- GEMINI CULINARY ASSISTANT CHAT ROUTES ---
+
+// GET /api/gemini/chats - Fetch saved chats
+app.get('/api/gemini/chats', async (req, res) => {
+  const { recipe_id } = req.query;
+  try {
+    const db = await getDb();
+    let chats;
+    if (recipe_id) {
+      chats = await db.all('SELECT * FROM recipe_chats WHERE recipe_id = ? ORDER BY updated_at DESC', [recipe_id]);
+    } else {
+      chats = await db.all('SELECT * FROM recipe_chats WHERE recipe_id IS NULL ORDER BY updated_at DESC');
+    }
+    res.json(chats.map(c => ({
+      ...c,
+      messages: JSON.parse(c.messages || '[]')
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/gemini/chats - Create a new chat
+app.post('/api/gemini/chats', async (req, res) => {
+  const { recipe_id, title } = req.body;
+  try {
+    const db = await getDb();
+    const chatTitle = title || (recipe_id ? `Recipe Chat` : `New Culinary Chat`);
+    const result = await db.run(
+      'INSERT INTO recipe_chats (recipe_id, title, messages) VALUES (?, ?, ?)',
+      [recipe_id || null, chatTitle, '[]']
+    );
+    res.status(201).json({
+      id: result.lastID,
+      recipe_id: recipe_id || null,
+      title: chatTitle,
+      messages: []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/gemini/chats/:id - Delete a chat
+app.delete('/api/gemini/chats/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const db = await getDb();
+    await db.run('DELETE FROM recipe_chats WHERE id = ?', [id]);
+    res.sendStatus(204);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/gemini/chats/:id/message - Chat with Gemini
+app.post('/api/gemini/chats/:id/message', async (req, res) => {
+  const { id } = req.params;
+  const { message } = req.body;
+
+  if (!message || message.trim() === '') {
+    return res.status(400).json({ error: 'Message cannot be empty' });
+  }
+
+  try {
+    const db = await getDb();
+    
+    // Fetch chat history
+    const chat = await db.get('SELECT * FROM recipe_chats WHERE id = ?', [id]);
+    if (!chat) {
+      return res.status(404).json({ error: 'Chat session not found' });
+    }
+    const messages = JSON.parse(chat.messages || '[]');
+
+    // Get API Key
+    const keySetting = await db.get("SELECT value FROM app_settings WHERE key = 'gemini_api_key'");
+    const apiKey = keySetting ? keySetting.value : '';
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Gemini API Key is not configured. Please go to Settings to add your key.' });
+    }
+
+    // Fetch current in-stock inventory context
+    const inventory = await db.all(`
+      SELECT ii.remaining_servings, p.name as product_name, p.brand as product_brand, p.serving_unit
+      FROM inventory_items ii
+      JOIN products p ON ii.product_id = p.id
+      WHERE ii.status IN ('unopened', 'opened')
+    `);
+
+    // Group inventory to avoid duplicate list items
+    const inventoryMap = {};
+    for (const item of inventory) {
+      const key = `${item.product_name} (${item.product_brand || 'No Brand'})`;
+      if (!inventoryMap[key]) {
+        inventoryMap[key] = { amount: 0, unit: item.serving_unit || 'pieces' };
+      }
+      inventoryMap[key].amount += item.remaining_servings;
+    }
+    const inventoryListStr = Object.entries(inventoryMap)
+      .map(([name, data]) => `- ${name}: ${data.amount.toFixed(1)} ${data.unit}`)
+      .join('\n');
+
+    // Fetch recipe context if active
+    let recipeContextStr = '';
+    if (chat.recipe_id) {
+      const recipe = await db.get('SELECT * FROM recipes WHERE id = ?', [chat.recipe_id]);
+      if (recipe) {
+        const recipeIngredients = await db.all(`
+          SELECT ri.amount, ri.unit, ri.name as ingredient_name, p.name as product_name
+          FROM recipe_ingredients ri
+          LEFT JOIN products p ON ri.product_id = p.id
+          WHERE ri.recipe_id = ?
+        `, [chat.recipe_id]);
+        const recipeSteps = await db.all('SELECT * FROM recipe_steps WHERE recipe_id = ? ORDER BY step_number ASC', [chat.recipe_id]);
+        const recipeEquipment = await db.all('SELECT * FROM recipe_equipment WHERE recipe_id = ? ORDER BY name ASC', [chat.recipe_id]);
+
+        recipeContextStr = `
+The user is currently viewing/discussing this recipe in their library:
+- Name: ${recipe.name}
+- Description: ${recipe.description || 'No description provided'}
+- Servings: ${recipe.servings}
+- Ingredients Needed:
+${recipeIngredients.map(ing => `  * ${ing.amount} ${ing.unit} ${ing.product_name || ing.ingredient_name}`).join('\n')}
+- Steps:
+${recipeSteps.map(s => `  ${s.step_number}. ${s.instruction}`).join('\n')}
+- Equipment:
+${recipeEquipment.map(e => `  * ${e.name}`).join('\n')}
+`;
+      }
+    }
+
+    // Build the system prompt instruction
+    const systemPrompt = `You are Gemini, a helpful culinary assistant in "My Kitchen App".
+You assist the user in managing inventory, adapting recipes, suggesting new creations, and scaling quantities.
+
+Here is the user's active inventory (items currently in stock):
+${inventoryListStr || 'No items in stock.'}
+${recipeContextStr}
+GUIDELINES:
+1. Always be conversational, friendly, and helpful.
+2. Cross-reference the user's inventory when suggesting recipes or answer questions about what they can make. Let them know if they have ingredients or are missing something.
+3. If you suggest a recipe that the user might want to add to their library, you MUST format the recipe details inside a structured JSON code block. This code block must start with \`\`\`json and end with \`\`\`.
+The JSON block MUST follow this exact schema:
+{
+  "name": "Recipe Name",
+  "description": "Recipe summary/description",
+  "servings": number,
+  "equipment": ["Equipment 1", "Equipment 2"],
+  "ingredients": [
+    { "name": "Ingredient name (e.g. Garlic Powder)", "amount": number, "unit": "pieces|g|kg|ml|l|cup|tbsp|tsp|etc" }
+  ],
+  "steps": [
+    "Step 1 instruction text",
+    "Step 2 instruction text"
+  ]
+}
+4. When suggesting recipes, output the conversation text first, then end with the JSON code block. The frontend will detect this JSON block and render an "Import Recipe" button automatically.`;
+
+    // Append user message
+    messages.push({ role: 'user', content: message });
+
+    // Format chat history for Gemini API
+    const contents = messages.map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    }));
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: {
+            parts: [{ text: systemPrompt }]
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} - ${errText}`);
+    }
+
+    const resData = await response.json();
+    const reply = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    // Append response to history
+    messages.push({ role: 'model', content: reply });
+
+    // Save updated history in the database
+    await db.run(
+      'UPDATE recipe_chats SET messages = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [JSON.stringify(messages), id]
+    );
+
+    res.json(messages);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/recipes/import-resolve - Resolve recipe import ingredients
+app.post('/api/recipes/import-resolve', async (req, res) => {
+  const { name, description, servings, equipment, ingredients, steps } = req.body;
+  try {
+    const db = await getDb();
+    
+    // Resolve ingredients
+    const resolvedIngredients = [];
+    if (ingredients && ingredients.length > 0) {
+      for (const ing of ingredients) {
+        // Attempt exact or case-insensitive match on product name
+        const match = await db.get(
+          'SELECT id, name FROM products WHERE LOWER(name) = ? LIMIT 1',
+          [(ing.name || '').toLowerCase().trim()]
+        );
+        if (match) {
+          resolvedIngredients.push({
+            product_id: match.id,
+            name: match.name,
+            amount: ing.amount || 1,
+            unit: ing.unit || 'pieces',
+            isUnlinked: false
+          });
+        } else {
+          // If no product is found, it is an unlinked ingredient
+          resolvedIngredients.push({
+            product_id: '',
+            name: ing.name,
+            amount: ing.amount || 1,
+            unit: ing.unit || 'pieces',
+            isUnlinked: true
+          });
+        }
+      }
+    }
+
+    // Resolve steps into format expected by add modal
+    const resolvedSteps = (steps || []).map(s => {
+      if (typeof s === 'string') {
+        return { instruction: s, image_path: '' };
+      }
+      return { instruction: s.instruction || '', image_path: s.image_path || '' };
+    });
+
+    res.json({
+      name: name || '',
+      description: description || '',
+      servings: servings || 2,
+      equipment: equipment || [''],
+      ingredients: resolvedIngredients.length > 0 ? resolvedIngredients : [{ product_id: '', name: '', amount: '', unit: 'pieces', isUnlinked: false }],
+      steps: resolvedSteps.length > 0 ? resolvedSteps : [{ instruction: '', image_path: '' }]
+    });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

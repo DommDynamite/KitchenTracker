@@ -752,8 +752,8 @@ export default function Settings({ settings, onSettingsChange }) {
           <div className="flex items-center gap-2.5">
             <Cpu className="h-5 w-5 text-indigo-400" />
             <div>
-              <h2 className="text-base font-bold text-white">Receipt Scanning (Google AI Studio)</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Use Google Gemini 1.5 Flash to parse and log grocery receipts.</p>
+              <h2 className="text-base font-bold text-white">Gemini AI Features (Google AI Studio)</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Enable Gemini receipt scanning and recipe generation chatbot.</p>
             </div>
           </div>
           <button
@@ -777,7 +777,7 @@ export default function Settings({ settings, onSettingsChange }) {
             <div className="md:col-span-1 space-y-4">
               <h3 className="text-xs font-bold text-slate-350 uppercase tracking-wider">Gemini API Key</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Receipt scanning is powered by Gemini 1.5 Flash. You will need a Google AI Studio API key. 
+                AI features are powered by Gemini 2.5 Flash. You will need a Google AI Studio API key. 
                 Keys are completely free for up to 15 requests per minute.
                 <a 
                   href="https://aistudio.google.com/" 

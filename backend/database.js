@@ -267,6 +267,59 @@ export async function initDb() {
   `);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_receipt_ignored_items_desc ON receipt_ignored_items(raw_description);`);
 
+  // 14. recipe_chats table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS recipe_chats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recipe_id INTEGER,
+      title TEXT NOT NULL,
+      messages TEXT NOT NULL DEFAULT '[]',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+    );
+  `);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_recipe_chats_recipe ON recipe_chats(recipe_id);`);
+
+  // Migration for recipe_ingredients to support unlinked ingredients (nullable product_id & name column)
+  const columns = await db.all("PRAGMA table_info(recipe_ingredients)");
+  const hasNameColumn = columns.some(c => c.name === 'name');
+  const productIdCol = columns.find(c => c.name === 'product_id');
+  const isProductIdNullable = productIdCol ? productIdCol.notnull === 0 : true;
+
+  if (!hasNameColumn || !isProductIdNullable) {
+    console.log('Migrating recipe_ingredients to support unlinked ingredients...');
+    // We run a manual nested transaction or a sequence since getDb does not auto-begin
+    await db.run('BEGIN TRANSACTION');
+    try {
+      await db.exec('ALTER TABLE recipe_ingredients RENAME TO old_recipe_ingredients');
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS recipe_ingredients (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          recipe_id INTEGER NOT NULL,
+          product_id INTEGER,
+          amount REAL NOT NULL,
+          unit TEXT NOT NULL,
+          name TEXT,
+          FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
+          FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        );
+      `);
+      await db.exec(`
+        INSERT INTO recipe_ingredients (id, recipe_id, product_id, amount, unit, name)
+        SELECT ri.id, ri.recipe_id, ri.product_id, ri.amount, ri.unit, p.name
+        FROM old_recipe_ingredients ri
+        LEFT JOIN products p ON ri.product_id = p.id
+      `);
+      await db.exec('DROP TABLE old_recipe_ingredients');
+      await db.exec('COMMIT');
+      console.log('recipe_ingredients migration completed successfully.');
+    } catch (err) {
+      console.error('Error during recipe_ingredients migration, rolling back:', err);
+      try { await db.exec('ROLLBACK'); } catch (_) {}
+    }
+  }
+
   // Seed categories if empty
   const catCount = await db.get('SELECT COUNT(*) as count FROM categories');
   if (catCount.count === 0) {

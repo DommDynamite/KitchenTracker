@@ -237,7 +237,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/products" element={<Products />} />
               <Route path="/inventory" element={<Inventory />} />
-              <Route path="/recipes" element={<Recipes />} />
+              <Route path="/recipes" element={<Recipes settings={settings} />} />
               <Route path="/shopping-list" element={<ShoppingList />} />
               <Route path="/scan" element={<Scan settings={settings} />} />
               <Route path="/settings" element={<SettingsPage settings={settings} onSettingsChange={fetchSettings} />} />
