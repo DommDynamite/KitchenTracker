@@ -246,6 +246,56 @@ export default function Recipes({ settings = {} }) {
     return null;
   };
 
+  const renderFormattedText = (text) => {
+    if (!text) return null;
+    
+    // First, unify underscores to asterisks
+    const unified = text
+      .replace(/__(.*?)__/g, '**$1**')
+      .replace(/_(.*?)_/g, '*$1*');
+
+    // Split by newlines so we can render line breaks properly
+    const lines = unified.split('\n');
+    
+    return lines.map((line, lineIdx) => {
+      // Split each line by bold markers: **bold**
+      const boldParts = line.split(/(\*\*.*?\*\*)/g);
+      const parsedElements = boldParts.map((part, partIdx) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          const boldText = part.slice(2, -2);
+          // Split bold text by italic markers: *italic*
+          const italicParts = boldText.split(/(\*.*?\*)/g);
+          return (
+            <strong key={partIdx} className="font-bold text-white">
+              {italicParts.map((item, itemIdx) => {
+                if (item.startsWith('*') && item.endsWith('*')) {
+                  return <em key={itemIdx} className="italic text-slate-350">{item.slice(1, -1)}</em>;
+                }
+                return item;
+              })}
+            </strong>
+          );
+        } else {
+          // Split regular text by italic markers
+          const italicParts = part.split(/(\*.*?\*)/g);
+          return italicParts.map((item, itemIdx) => {
+            if (item.startsWith('*') && item.endsWith('*')) {
+              return <em key={itemIdx} className="italic text-slate-300">{item.slice(1, -1)}</em>;
+            }
+            return item;
+          });
+        }
+      });
+
+      return (
+        <React.Fragment key={lineIdx}>
+          {lineIdx > 0 && <br />}
+          {parsedElements}
+        </React.Fragment>
+      );
+    });
+  };
+
   const renderMessageContent = (content) => {
     if (!content) return null;
     const jsonMatch = content.match(/([\s\S]*?)```json\s*([\s\S]*?)\s*```([\s\S]*)/);
@@ -259,12 +309,12 @@ export default function Recipes({ settings = {} }) {
         recipeData = JSON.parse(jsonStr);
       } catch (e) {
         // Fallback to plain text if JSON is invalid
-        return <p className="whitespace-pre-line">{content}</p>;
+        return <p className="whitespace-pre-wrap">{renderFormattedText(content)}</p>;
       }
 
       return (
         <div className="space-y-3 text-left">
-          {beforeText && <p className="whitespace-pre-line">{beforeText}</p>}
+          {beforeText && <p className="whitespace-pre-wrap">{renderFormattedText(beforeText)}</p>}
           
           {/* Styled Recipe Card Preview */}
           <div className="bg-slate-950/80 border border-indigo-500/20 rounded-xl p-3.5 space-y-3 my-2 shadow-inner text-left select-text">
@@ -316,18 +366,18 @@ export default function Recipes({ settings = {} }) {
             <button
               type="button"
               onClick={() => handleImportRecipe(recipeData)}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-emerald-400 font-bold text-xs cursor-pointer transition-all active:scale-95 mt-1"
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-emerald-450 font-bold text-xs cursor-pointer transition-all active:scale-95 mt-1"
             >
               <Plus className="h-3.5 w-3.5" /> Import to Recipes
             </button>
           </div>
 
-          {afterText && <p className="whitespace-pre-line">{afterText}</p>}
+          {afterText && <p className="whitespace-pre-wrap">{renderFormattedText(afterText)}</p>}
         </div>
       );
     }
     
-    return <p className="whitespace-pre-line">{content}</p>;
+    return <p className="whitespace-pre-wrap">{renderFormattedText(content)}</p>;
   };
 
   const handleImportRecipe = async (recipeJson) => {
