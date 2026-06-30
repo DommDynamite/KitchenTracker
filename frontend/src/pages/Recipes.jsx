@@ -1291,7 +1291,7 @@ export default function Recipes({ settings = {} }) {
 
         {/* Gemini Panel */}
         {settings?.receipt_scanning_enabled && showGeminiPanel && (
-          <div className="w-full lg:w-96 shrink-0 fixed lg:static inset-y-0 right-0 z-40 bg-slate-950/95 border-l border-slate-800 p-4 flex flex-col h-full lg:h-[calc(100vh-14rem)] lg:rounded-2xl lg:bg-slate-950/40 lg:backdrop-blur-md shadow-2xl lg:shadow-none animate-slide-in-right">
+          <div className="w-full lg:w-96 shrink-0 fixed lg:static inset-y-0 right-0 z-[60] lg:z-40 bg-slate-950/95 border-l border-slate-800 p-4 flex flex-col h-[100dvh] lg:h-[calc(100vh-14rem)] lg:rounded-2xl lg:bg-slate-950/40 lg:backdrop-blur-md shadow-2xl lg:shadow-none animate-slide-in-right">
             {/* Panel Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 mb-3 shrink-0">
               <div className="flex items-center gap-2">
@@ -1301,9 +1301,10 @@ export default function Recipes({ settings = {} }) {
               <button 
                 type="button"
                 onClick={() => setShowGeminiPanel(false)}
-                className="p-1 rounded-full text-slate-400 hover:text-white cursor-pointer"
+                className="p-2.5 -mr-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-900 active:scale-95 transition-all cursor-pointer flex items-center justify-center"
+                title="Close Assistant"
               >
-                <X className="h-4.5 w-4.5" />
+                <X className="h-5.5 w-5.5" />
               </button>
             </div>
 
