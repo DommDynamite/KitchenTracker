@@ -60,6 +60,11 @@ test('Parent-Child Catalog Naming Derivation and Propagation', async () => {
     const updatedChild = await db.get('SELECT * FROM products WHERE id = ?', [childId]);
     assert.strictEqual(updatedChild.name, 'McCormick TEST_Garlic_Seasoning');
 
+    // 4. Verify child product can have its own image path set
+    await db.run('UPDATE products SET image_path = ? WHERE id = ?', ['mccormick_garlic.png', childId]);
+    const childWithImage = await db.get('SELECT image_path FROM products WHERE id = ?', [childId]);
+    assert.strictEqual(childWithImage.image_path, 'mccormick_garlic.png');
+
   } finally {
     await db.run('ROLLBACK');
   }

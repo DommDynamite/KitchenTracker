@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Check, X, Camera, Barcode } from 'lucide-react';
+import { Check, X, Camera, Barcode, Upload } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
 export default function ChildProductModal({
@@ -20,6 +20,35 @@ export default function ChildProductModal({
   const [caloriesValue, setCaloriesValue] = useState('');
   const [servingSizeValue, setServingSizeValue] = useState(1);
 
+  // Image uploader states
+  const [imagePath, setImagePath] = useState('');
+  const [uploading, setUploading] = useState(false);
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.imageUrl) {
+        setImagePath(data.imageUrl);
+      }
+    } catch (error) {
+      console.error('Image upload failed:', error);
+      showToast('Image upload failed', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       if (editingProduct) {
@@ -30,6 +59,7 @@ export default function ChildProductModal({
         setCapacityUnit(editingProduct.serving_unit || 'g');
         setCaloriesValue(editingProduct.calories_per_serving !== null && editingProduct.calories_per_serving !== undefined ? editingProduct.calories_per_serving : '');
         setServingSizeValue(editingProduct.serving_size || 1);
+        setImagePath(editingProduct.image_path || '');
       } else {
         setBrand('');
         setBarcode('');
@@ -38,6 +68,7 @@ export default function ChildProductModal({
         setCapacityUnit(parentProduct?.is_spice ? 'g' : (parentProduct?.default_unit || 'g'));
         setCaloriesValue('');
         setServingSizeValue(parentProduct?.is_spice ? 100 : 100);
+        setImagePath('');
       }
     }
   }, [isOpen, editingProduct, parentProduct]);
@@ -66,6 +97,7 @@ export default function ChildProductModal({
       minimum_stock: 0,
       default_consumption: 1.0,
       use_by_days_after_opening: null,
+      image_path: imagePath || null,
       package_type: packageType || 'package',
       calories_per_serving: parentProduct.is_spice ? null : (caloriesValue !== '' ? parseInt(caloriesValue, 10) : null),
       is_parent: 0,
@@ -240,6 +272,34 @@ export default function ChildProductModal({
               </div>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <label className="block text-slate-400 font-semibold">Brand Photo</label>
+            <div className="flex gap-4 items-center">
+              <label className="flex items-center gap-2 cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-4 py-2.5 rounded-lg text-xs transition-colors border border-slate-800">
+                <Upload className="h-4 w-4" />
+                {uploading ? 'Uploading...' : 'Choose File'}
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+              {imagePath && (
+                <div className="flex items-center gap-2">
+                  <img src={imagePath} alt="Upload preview" className="h-10 w-10 object-cover rounded-lg border border-slate-700" />
+                  <button 
+                    type="button" 
+                    onClick={() => setImagePath('')}
+                    className="text-xs text-rose-400 hover:text-rose-300 font-bold"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
 
           <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-800">
             <button 

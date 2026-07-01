@@ -43,7 +43,7 @@ export default function ProductModal({
   const { showToast } = useToast();
   const [name, setName] = useState('');
   const [barcode, setBarcode] = useState('');
-  const [parentProductId, setParentProductId] = useState('');
+  const parentProductId = editingProduct ? (editingProduct.parent_product_id || null) : null;
   const [isParent, setIsParent] = useState(false);
   const [brand, setBrand] = useState('');
   const [category, setCategory] = useState('Pantry');
@@ -146,7 +146,6 @@ export default function ProductModal({
       if (editingProduct) {
         setName(editingProduct.name || '');
         setBarcode(editingProduct.barcode || '');
-        setParentProductId(editingProduct.parent_product_id || '');
         setIsParent(editingProduct.is_parent == 1);
         setBrand(editingProduct.brand || '');
         setCategory(editingProduct.category || (isSpiceMode ? 'Spices' : 'Pantry'));
@@ -196,7 +195,6 @@ export default function ProductModal({
       } else {
         setName(prefilledName || '');
         setBarcode(prefilledBarcode || '');
-        setParentProductId(prefilledParentProductId || '');
         setIsParent(false);
         setBrand(prefilledBrand || '');
         if (isSpiceMode) {
@@ -379,43 +377,85 @@ export default function ProductModal({
           }}
           className="space-y-4 text-xs text-slate-200"
         >
+          {/* Product Mode Selector Tabs */}
+          <div className="space-y-1.5">
+            <label className="block text-slate-400 font-semibold">Product Type</label>
+            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-950/60 border border-slate-850">
+              <button
+                type="button"
+                disabled={!!editingProduct}
+                onClick={() => setIsParent(false)}
+                className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                  !isParent 
+                    ? 'bg-indigo-600 text-white shadow-md font-extrabold' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900/30'
+                } ${editingProduct ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+              >
+                Standalone Product
+              </button>
+              <button
+                type="button"
+                disabled={!!editingProduct}
+                onClick={() => setIsParent(true)}
+                className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                  isParent 
+                    ? 'bg-indigo-600 text-white shadow-md font-extrabold' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900/30'
+                } ${editingProduct ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+              >
+                Parent Category Product
+              </button>
+            </div>
+            {editingProduct && (
+              <span className="text-[9px] text-slate-500 italic block mt-0.5">
+                Product mode cannot be changed once created.
+              </span>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5 col-span-2">
-              <label className="block text-slate-400 font-semibold">Product Name *</label>
+              <label className="block text-slate-400 font-semibold">
+                {isParent ? 'Parent Category Name *' : 'Product Name *'}
+              </label>
               <input 
                 type="text" 
                 value={name} 
                 onChange={(e) => setName(e.target.value)}
                 className="w-full p-2.5 rounded-lg glass-input text-slate-100 font-bold"
-                placeholder="e.g. Horizon Organic Whole Milk half gallon"
+                placeholder={isParent ? "e.g. Ketchup, Garlic Powder, Whole Milk" : "e.g. Horizon Organic Whole Milk half gallon"}
                 required
               />
             </div>
             
-            <div className="space-y-1.5">
-              <label className="block text-slate-400 font-semibold">Barcode</label>
-              <input 
-                type="text" 
-                value={barcode} 
-                onChange={(e) => setBarcode(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input"
-                placeholder="Scan or type barcode"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-slate-400 font-semibold">Brand</label>
-              <input 
-                type="text" 
-                value={brand} 
-                onChange={(e) => setBrand(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input"
-                placeholder="e.g. Horizon Organic"
-              />
-            </div>
+            {!isParent && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="block text-slate-400 font-semibold">Barcode</label>
+                  <input 
+                    type="text" 
+                    value={barcode} 
+                    onChange={(e) => setBarcode(e.target.value)}
+                    className="w-full p-2.5 rounded-lg glass-input"
+                    placeholder="Scan or type barcode"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-slate-400 font-semibold">Brand</label>
+                  <input 
+                    type="text" 
+                    value={brand} 
+                    onChange={(e) => setBrand(e.target.value)}
+                    className="w-full p-2.5 rounded-lg glass-input"
+                    placeholder="e.g. Horizon Organic"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
+            <div className={`space-y-1.5 ${isParent ? 'col-span-2' : ''}`}>
               <label className="block text-slate-400 font-semibold">Category</label>
               <select 
                 value={category} 
@@ -440,73 +480,32 @@ export default function ProductModal({
               </select>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-slate-400 font-semibold">Package Type</label>
-              <select 
-                value={packageType} 
-                onChange={(e) => setPackageType(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
-              >
-                <option value="package">Package (generic)</option>
-                <option value="tub">Tub</option>
-                <option value="pack">Pack</option>
-                <option value="carton">Carton</option>
-                <option value="can">Can</option>
-                <option value="bottle">Bottle</option>
-                <option value="jar">Jar</option>
-                <option value="box">Box</option>
-                <option value="bag">Bag</option>
-                <option value="tin">Tin</option>
-                <option value="pouch">Pouch</option>
-                <option value="roll">Roll</option>
-                <option value="container">Container</option>
-              </select>
-            </div>
+            {!isParent && (
+              <div className="space-y-1.5">
+                <label className="block text-slate-400 font-semibold">Package Type</label>
+                <select 
+                  value={packageType} 
+                  onChange={(e) => setPackageType(e.target.value)}
+                  className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
+                >
+                  <option value="package">Package (generic)</option>
+                  <option value="tub">Tub</option>
+                  <option value="pack">Pack</option>
+                  <option value="carton">Carton</option>
+                  <option value="can">Can</option>
+                  <option value="bottle">Bottle</option>
+                  <option value="jar">Jar</option>
+                  <option value="box">Box</option>
+                  <option value="bag">Bag</option>
+                  <option value="tin">Tin</option>
+                  <option value="pouch">Pouch</option>
+                  <option value="roll">Roll</option>
+                  <option value="container">Container</option>
+                </select>
+              </div>
+            )}
           </div>
 
-          <div className="space-y-1.5">
-            <label className="block text-slate-400 font-semibold">Product Role</label>
-            <div className="flex gap-4 mt-2">
-              <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                <input 
-                  type="checkbox" 
-                  checked={isParent} 
-                  onChange={(e) => {
-                    setIsParent(e.target.checked);
-                    if (e.target.checked) setParentProductId('');
-                  }}
-                  className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
-                />
-                Is Parent/Category Product
-              </label>
-            </div>
-          </div>
-
-          {!isParent && (
-            <div className="space-y-1.5 animate-fade-in">
-              <label className="block text-slate-400 font-semibold">
-                {isSpiceMode ? 'Parent Spice Category' : 'Parent Category Product'}
-              </label>
-              <select 
-                value={parentProductId} 
-                onChange={(e) => setParentProductId(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
-              >
-                <option value="">-- None (Standalone Product) --</option>
-                {parentProducts
-                  .filter(p => (!editingProduct || p.id !== editingProduct.id) && (isSpiceMode ? p.is_spice == 1 : (p.is_spice == 0 || p.is_spice === null)))
-                  .map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))
-                }
-              </select>
-              <span className="text-[11px] text-slate-500 block">
-                {isSpiceMode 
-                  ? 'Choose a parent spice category (e.g. Onion Powder) if this is a specific brand brand.'
-                  : 'Choose a parent product so this brand counts towards the same inventory minimum stock.'}
-              </span>
-            </div>
-          )}
 
           {isSpiceMode ? (
             <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
@@ -839,7 +838,20 @@ export default function ProductModal({
                           className="hover:bg-slate-850/40 transition-colors"
                         >
                           <td className="p-2.5 font-semibold text-slate-200">
-                            {child.brand || '(No brand)'}
+                            <div className="flex items-center gap-2">
+                              {child.image_path ? (
+                                <img 
+                                  src={child.image_path} 
+                                  alt={child.brand} 
+                                  className="h-6 w-6 object-cover rounded-md border border-slate-700/60" 
+                                />
+                              ) : (
+                                <div className="h-6 w-6 rounded-md border border-slate-800 bg-slate-950/40 flex items-center justify-center text-slate-600">
+                                  <Package className="h-3 w-3" />
+                                </div>
+                              )}
+                              <span>{child.brand || '(No brand)'}</span>
+                            </div>
                           </td>
                           <td className="p-2.5 text-slate-400 font-mono">
                             {child.barcode || '—'}

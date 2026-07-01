@@ -63,7 +63,7 @@ async function enrichProductsWithInheritedProperties(db, products) {
         // Find active inventory items for these children
         const activeItems = await db.all(`
           SELECT ii.*, p.serving_size, p.serving_unit, p.servings_per_package, p.calories_per_serving, 
-                 p.use_by_days_after_opening, p.default_consumption
+                 p.use_by_days_after_opening, p.default_consumption, p.image_path as product_image_path
           FROM inventory_items ii
           JOIN products p ON ii.product_id = p.id
           WHERE ii.product_id IN (${childIds.map(() => '?').join(',')}) AND ii.status IN ('unopened', 'opened')
@@ -85,7 +85,7 @@ async function enrichProductsWithInheritedProperties(db, products) {
           });
           source = activeItems[0];
         } else {
-          source = children.find(c => (c.serving_size > 0 && c.serving_size !== 1.0) || c.calories_per_serving !== null) || children[0];
+          source = children.find(c => (c.serving_size > 0 && c.serving_size !== 1.0) || c.calories_per_serving !== null || c.image_path) || children[0];
         }
 
         if (source) {
@@ -95,6 +95,11 @@ async function enrichProductsWithInheritedProperties(db, products) {
           prod.calories_per_serving = source.calories_per_serving;
           prod.use_by_days_after_opening = source.use_by_days_after_opening;
           prod.default_consumption = source.default_consumption;
+
+          const activeImage = source.product_image_path || source.image_path;
+          if (activeImage) {
+            prod.image_path = activeImage;
+          }
         }
       }
     }
