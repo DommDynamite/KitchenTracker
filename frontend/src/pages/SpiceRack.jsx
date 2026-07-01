@@ -12,6 +12,7 @@ export default function SpiceRack({ settings }) {
   const { showToast } = useToast();
   const [spices, setSpices] = useState([]);
   const [parentProducts, setParentProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'low', 'out'
@@ -58,9 +59,22 @@ export default function SpiceRack({ settings }) {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetchSpices();
     fetchParentProducts();
+    fetchCategories();
   }, []);
 
   const handlePercentageChange = (productId, val) => {
@@ -484,6 +498,7 @@ export default function SpiceRack({ settings }) {
           editingProduct={editingProduct}
           isSpiceMode={true}
           parentProducts={parentProducts}
+          categories={categories}
         />
       )}
 
