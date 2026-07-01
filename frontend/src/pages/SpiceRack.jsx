@@ -344,145 +344,159 @@ export default function SpiceRack({ settings }) {
                 </div>
 
                 <div className="space-y-2 p-3 bg-slate-900/30 rounded-xl border border-slate-900/60 shadow-inner">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-400">Active Shaker Level:</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold border font-mono ${getPercentageColor(item.activePercentage, reorderThreshold)}`}>
-                      {item.totalContainers === 0 ? 'Out of Stock' : `${item.activePercentage}%`}
-                    </span>
-                  </div>
+                  {(() => {
+                    const pkg = item.product.package_type || 'jar';
+                    const pkgPlural = pkg === 'box' ? 'boxes' : pkg === 'pouch' ? 'pouches' : `${pkg}s`;
+                    const capPkg = pkg.charAt(0).toUpperCase() + pkg.slice(1);
+                    return (
+                      <>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-400">Active {capPkg} Level:</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold border font-mono ${getPercentageColor(item.activePercentage, reorderThreshold)}`}>
+                            {item.totalContainers === 0 ? 'Out of Stock' : `${item.activePercentage}%`}
+                          </span>
+                        </div>
 
-                  {item.totalContainers > 0 ? (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-3">
-                        <input 
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={item.activePercentage}
-                          onChange={(e) => handlePercentageChange(item.product.id, parseInt(e.target.value))}
-                          onMouseUp={(e) => handlePercentageCommit(item.product.id, parseInt(e.target.value))}
-                          onTouchEnd={(e) => handlePercentageCommit(item.product.id, parseInt(e.target.value))}
-                          className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-800 accent-indigo-500"
-                        />
-                      </div>
-                      
-                      <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full transition-all duration-300 ${getProgressBarColor(item.activePercentage, reorderThreshold)}`}
-                          style={{ width: `${item.activePercentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[10px] text-slate-500 py-1.5 italic text-center">
-                      No active jars logged. Add one below.
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-900/80 text-slate-455">
-                    <span className="flex items-center gap-1">
-                      <Layers className="h-3 w-3" />
-                      Backups: <strong>{item.backupCount} jar(s)</strong>
-                    </span>
-                    {item.expirationDate && (
-                      <span className={`font-mono flex items-center gap-1 ${isExpired ? 'text-rose-455 font-bold' : ''}`}>
-                        <Calendar className="h-3 w-3" /> Exp: {item.expirationDate}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="shrink-0 border-t border-slate-900/50 pt-2.5">
-                  {!isQuickAddOpen ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveQuickAddId(item.product.id);
-                        setQuickAddBrandId('');
-                      }}
-                      className="w-full py-2 px-3 rounded-xl border border-slate-900 hover:border-slate-850 hover:bg-slate-900/30 text-[11px] font-bold text-indigo-400 hover:text-white transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> Log Grocery Purchase / Jar
-                    </button>
-                  ) : (
-                    <form 
-                      onSubmit={(e) => handleQuickAddSubmit(e, item.product.id)}
-                      className="space-y-3 p-3 rounded-xl border border-indigo-500/10 bg-indigo-950/[0.02] text-left animate-slide-in-down"
-                    >
-                      <div className="flex items-center justify-between border-b border-slate-900 pb-1.5 mb-1.5">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
-                          <Plus className="h-3 w-3" /> Log Spice Jar
-                        </span>
-                        <button 
-                          type="button"
-                          onClick={() => setActiveQuickAddId(null)}
-                          className="p-0.5 text-slate-400 hover:text-white cursor-pointer"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-[10px]">
-                        {item.brands.length > 0 && (
-                          <div className="space-y-1 col-span-2">
-                            <label className="block text-slate-400 font-semibold">Select Brand/Format</label>
-                            <select
-                              value={quickAddBrandId}
-                              onChange={(e) => setQuickAddBrandId(e.target.value)}
-                              className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
-                            >
-                              <option value="">{item.product.name} (General)</option>
-                              {item.brands.map(b => (
-                                <option key={b.id} value={b.id}>{b.brand} {b.barcode ? `(${b.barcode})` : ''}</option>
-                              ))}
-                            </select>
+                        {item.totalContainers > 0 ? (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-3">
+                              <input 
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={item.activePercentage}
+                                onChange={(e) => handlePercentageChange(item.product.id, parseInt(e.target.value))}
+                                onMouseUp={(e) => handlePercentageCommit(item.product.id, parseInt(e.target.value))}
+                                onTouchEnd={(e) => handlePercentageCommit(item.product.id, parseInt(e.target.value))}
+                                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-800 accent-indigo-500"
+                              />
+                            </div>
+                            
+                            <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full transition-all duration-300 ${getProgressBarColor(item.activePercentage, reorderThreshold)}`}
+                                style={{ width: `${item.activePercentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-500 py-1.5 italic text-center">
+                            No active {pkgPlural} logged. Add one below.
                           </div>
                         )}
 
-                        <div className="space-y-1">
-                          <label className="block text-slate-400 font-semibold">Quantity Jars</label>
-                          <input 
-                            type="number" 
-                            min="1"
-                            value={quickAddQty}
-                            onChange={(e) => setQuickAddQty(parseInt(e.target.value) || 1)}
-                            className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
-                            required
-                          />
+                        <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-900/80 text-slate-455">
+                          <span className="flex items-center gap-1">
+                            <Layers className="h-3 w-3" />
+                            Backups: <strong>{item.backupCount} {item.backupCount === 1 ? pkg : pkgPlural}</strong>
+                          </span>
+                          {item.expirationDate && (
+                            <span className={`font-mono flex items-center gap-1 ${isExpired ? 'text-rose-455 font-bold' : ''}`}>
+                              <Calendar className="h-3 w-3" /> Exp: {item.expirationDate}
+                            </span>
+                          )}
                         </div>
+                      </>
+                    );
+                  })()}
+                </div>
 
-                        <div className="space-y-1">
-                          <label className="block text-slate-400 font-semibold">Jar Fill %</label>
-                          <input 
-                            type="number" 
-                            min="1"
-                            max="100"
-                            value={quickAddPercentage}
-                            onChange={(e) => setQuickAddPercentage(Math.max(1, Math.min(100, parseInt(e.target.value) || 100)))}
-                            className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
-                            required
-                          />
-                        </div>
-
-                        <div className="space-y-1 col-span-2">
-                          <label className="block text-slate-400 font-semibold">Expiration Date</label>
-                          <input 
-                            type="date" 
-                            value={quickAddExpiry}
-                            onChange={(e) => setQuickAddExpiry(e.target.value)}
-                            className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
-                          />
-                        </div>
-                      </div>
-
+                <div className="shrink-0 border-t border-slate-900/50 pt-2.5">
+                  {(() => {
+                    const pkg = item.product.package_type || 'jar';
+                    const pkgPlural = pkg === 'box' ? 'boxes' : pkg === 'pouch' ? 'pouches' : `${pkg}s`;
+                    const capPkg = pkg.charAt(0).toUpperCase() + pkg.slice(1);
+                    return !isQuickAddOpen ? (
                       <button
-                        type="submit"
-                        className="w-full py-1.5 px-3 rounded bg-gradient-indigo text-white font-bold text-[10px] hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+                        type="button"
+                        onClick={() => {
+                          setActiveQuickAddId(item.product.id);
+                          setQuickAddBrandId('');
+                        }}
+                        className="w-full py-2 px-3 rounded-xl border border-slate-900 hover:border-slate-850 hover:bg-slate-900/30 text-[11px] font-bold text-indigo-400 hover:text-white transition-all cursor-pointer flex items-center justify-center gap-1.5"
                       >
-                        Add to Spice Rack
+                        <Plus className="h-3.5 w-3.5" /> Log Grocery Purchase / {capPkg}
                       </button>
-                    </form>
-                  )}
+                    ) : (
+                      <form 
+                        onSubmit={(e) => handleQuickAddSubmit(e, item.product.id)}
+                        className="space-y-3 p-3 rounded-xl border border-indigo-500/10 bg-indigo-950/[0.02] text-left animate-slide-in-down"
+                      >
+                        <div className="flex items-center justify-between border-b border-slate-900 pb-1.5 mb-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                            <Plus className="h-3 w-3" /> Log {capPkg}
+                          </span>
+                          <button 
+                            type="button"
+                            onClick={() => setActiveQuickAddId(null)}
+                            className="p-0.5 text-slate-400 hover:text-white cursor-pointer"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          {item.brands.length > 0 && (
+                            <div className="space-y-1 col-span-2">
+                              <label className="block text-slate-400 font-semibold">Select Brand/Format</label>
+                              <select
+                                value={quickAddBrandId}
+                                onChange={(e) => setQuickAddBrandId(e.target.value)}
+                                className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
+                              >
+                                <option value="">{item.product.name} (General)</option>
+                                {item.brands.map(b => (
+                                  <option key={b.id} value={b.id}>{b.brand} {b.barcode ? `(${b.barcode})` : ''}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          <div className="space-y-1">
+                            <label className="block text-slate-400 font-semibold">Quantity ({pkgPlural})</label>
+                            <input 
+                              type="number" 
+                              min="1"
+                              value={quickAddQty}
+                              onChange={(e) => setQuickAddQty(parseInt(e.target.value) || 1)}
+                              className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
+                              required
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-slate-400 font-semibold">{capPkg} Fill %</label>
+                            <input 
+                              type="number" 
+                              min="1"
+                              max="100"
+                              value={quickAddPercentage}
+                              onChange={(e) => setQuickAddPercentage(Math.max(1, Math.min(100, parseInt(e.target.value) || 100)))}
+                              className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
+                              required
+                            />
+                          </div>
+
+                          <div className="space-y-1 col-span-2">
+                            <label className="block text-slate-400 font-semibold">Expiration Date</label>
+                            <input 
+                              type="date" 
+                              value={quickAddExpiry}
+                              onChange={(e) => setQuickAddExpiry(e.target.value)}
+                              className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full py-1.5 px-3 rounded bg-gradient-indigo text-white font-bold text-[10px] hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+                        >
+                          Add to Spice Rack
+                        </button>
+                      </form>
+                    );
+                  })()}
                 </div>
               </div>
             );
