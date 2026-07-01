@@ -36,7 +36,8 @@ export default function ProductModal({
   prefilledParentProductId = '',
   prefilledCategory = '',
   prefilledName = '',
-  prefilledBrand = ''
+  prefilledBrand = '',
+  isSpiceMode = false
 }) {
   const { showToast } = useToast();
   const [name, setName] = useState('');
@@ -54,6 +55,9 @@ export default function ProductModal({
   const [useByDaysAfterOpening, setUseByDaysAfterOpening] = useState('');
   const [packageType, setPackageType] = useState('package');
   const [imagePath, setImagePath] = useState('');
+  
+  // Spice reorder settings
+  const [spiceReorderPercentage, setSpiceReorderPercentage] = useState(20);
   
   // Smart Package Content and Calorie form states
   const [capacityValue, setCapacityValue] = useState(1);
@@ -114,18 +118,19 @@ export default function ProductModal({
         setParentProductId(editingProduct.parent_product_id || '');
         setIsParent(editingProduct.is_parent == 1);
         setBrand(editingProduct.brand || '');
-        setCategory(editingProduct.category || 'Pantry');
-        setDefaultUnit(editingProduct.default_unit || 'pieces');
+        setCategory(editingProduct.category || (isSpiceMode ? 'Spices' : 'Pantry'));
+        setDefaultUnit(editingProduct.default_unit || (isSpiceMode ? 'g' : 'pieces'));
         setServingsPerPackage(editingProduct.servings_per_package || 1);
         setServingSize(editingProduct.serving_size || 1);
-        setServingUnit(editingProduct.serving_unit || 'pieces');
+        setServingUnit(editingProduct.serving_unit || (isSpiceMode ? 'g' : 'pieces'));
         setMinimumStock(editingProduct.minimum_stock || 0);
         setDefaultConsumption(editingProduct.default_consumption || 1.0);
         setUseByDaysAfterOpening(editingProduct.use_by_days_after_opening || '');
-        setPackageType(editingProduct.package_type || 'package');
+        setPackageType(editingProduct.package_type || (isSpiceMode ? 'jar' : 'package'));
         setImagePath(editingProduct.image_path || '');
+        setSpiceReorderPercentage(editingProduct.spice_reorder_percentage !== undefined && editingProduct.spice_reorder_percentage !== null ? editingProduct.spice_reorder_percentage : 20);
 
-        const sUnit = editingProduct.serving_unit || editingProduct.default_unit || 'pieces';
+        const sUnit = editingProduct.serving_unit || editingProduct.default_unit || (isSpiceMode ? 'g' : 'pieces');
         const sSize = editingProduct.serving_size || 1.0;
         const sPkg = editingProduct.servings_per_package || 1.0;
         
@@ -163,7 +168,9 @@ export default function ProductModal({
         setParentProductId(prefilledParentProductId || '');
         setIsParent(false);
         setBrand(prefilledBrand || '');
-        if (prefilledCategory) {
+        if (isSpiceMode) {
+          setCategory('Spices');
+        } else if (prefilledCategory) {
           setCategory(prefilledCategory);
         } else if (categories.length > 0) {
           const pantryCat = categories.find(c => c.name.toLowerCase() === 'pantry');
@@ -171,26 +178,27 @@ export default function ProductModal({
         } else {
           setCategory('Pantry');
         }
-        setDefaultUnit('pieces');
+        setDefaultUnit(isSpiceMode ? 'g' : 'pieces');
         setServingsPerPackage(1);
         setServingSize(1);
-        setServingUnit('pieces');
+        setServingUnit(isSpiceMode ? 'g' : 'pieces');
         setMinimumStock(0);
         setDefaultConsumption(1.0);
         setUseByDaysAfterOpening('');
-        setPackageType('package');
+        setPackageType(isSpiceMode ? 'jar' : 'package');
         setImagePath('');
 
-        setCapacityValue(1);
-        setCapacityUnit('pieces');
+        setCapacityValue(isSpiceMode ? 100 : 1);
+        setCapacityUnit(isSpiceMode ? 'g' : 'pieces');
         setCalorieMode('per_unit');
         setCaloriesValue('');
         setHasCustomServing(false);
         setServingSizeValue(1);
         setServingsPerPackageValue(1);
+        setSpiceReorderPercentage(20);
       }
     }
-  }, [isOpen, editingProduct, prefilledBarcode, categories, prefilledParentProductId, prefilledCategory, prefilledName, prefilledBrand]);
+  }, [isOpen, editingProduct, prefilledBarcode, categories, prefilledParentProductId, prefilledCategory, prefilledName, prefilledBrand, isSpiceMode]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -276,17 +284,19 @@ export default function ProductModal({
       parent_product_id: isParent ? null : (parentProductId || null),
       brand: brand || null,
       category,
-      default_unit: defaultUnit,
-      servings_per_package: sPkg,
-      serving_size: sSize,
-      serving_unit: sUnit,
-      minimum_stock: (isParent || !parentProductId) ? (parseFloat(minimumStock) || 0) : 0,
-      default_consumption: parseFloat(defaultConsumption) || 1.0,
+      default_unit: isSpiceMode ? capacityUnit : defaultUnit,
+      servings_per_package: isSpiceMode ? 1.0 : sPkg,
+      serving_size: isSpiceMode ? capacityValue : sSize,
+      serving_unit: isSpiceMode ? capacityUnit : sUnit,
+      minimum_stock: isSpiceMode ? 0 : ((isParent || !parentProductId) ? (parseFloat(minimumStock) || 0) : 0),
+      default_consumption: isSpiceMode ? 1.0 : (parseFloat(defaultConsumption) || 1.0),
       use_by_days_after_opening: isParent ? null : (useByDaysAfterOpening ? parseInt(useByDaysAfterOpening, 10) : null),
       image_path: imagePath || null,
-      package_type: packageType || 'package',
-      calories_per_serving: calPerSrv,
-      is_parent: isParent ? 1 : 0
+      package_type: packageType || (isSpiceMode ? 'jar' : 'package'),
+      calories_per_serving: isSpiceMode ? null : calPerSrv,
+      is_parent: isParent ? 1 : 0,
+      is_spice: isSpiceMode ? 1 : (editingProduct ? (editingProduct.is_spice || 0) : 0),
+      spice_reorder_percentage: isSpiceMode ? (parseFloat(spiceReorderPercentage) || 20.0) : (editingProduct ? (editingProduct.spice_reorder_percentage || 20.0) : 20.0)
     };
 
     try {
@@ -443,7 +453,9 @@ export default function ProductModal({
 
           {!isParent && (
             <div className="space-y-1.5 animate-fade-in">
-              <label className="block text-slate-400 font-semibold">Parent Category Product</label>
+              <label className="block text-slate-400 font-semibold">
+                {isSpiceMode ? 'Parent Spice Category' : 'Parent Category Product'}
+              </label>
               <select 
                 value={parentProductId} 
                 onChange={(e) => setParentProductId(e.target.value)}
@@ -451,27 +463,29 @@ export default function ProductModal({
               >
                 <option value="">-- None (Standalone Product) --</option>
                 {parentProducts
-                  .filter(p => !editingProduct || p.id !== editingProduct.id)
+                  .filter(p => (!editingProduct || p.id !== editingProduct.id) && (isSpiceMode ? p.is_spice == 1 : (p.is_spice == 0 || p.is_spice === null)))
                   .map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))
                 }
               </select>
               <span className="text-[11px] text-slate-500 block">
-                Choose a parent product so this brand counts towards the same inventory minimum stock.
+                {isSpiceMode 
+                  ? 'Choose a parent spice category (e.g. Onion Powder) if this is a specific brand brand.'
+                  : 'Choose a parent product so this brand counts towards the same inventory minimum stock.'}
               </span>
             </div>
           )}
 
-          {!isParent ? (
-            <>
+          {isSpiceMode ? (
+            !isParent && (
               <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Package Size & Contents</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Spice Capacity & Reorder Level</h3>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-slate-400 font-medium">
-                      One <span className="capitalize text-white">{packageType}</span> contains:
+                      Jar/Bottle Capacity:
                     </label>
                     <div className="flex gap-2">
                       <input 
@@ -479,29 +493,192 @@ export default function ProductModal({
                         step="any"
                         value={capacityValue} 
                         onChange={(e) => setCapacityValue(e.target.value)}
-                        className="w-full p-2.5 rounded-lg glass-input text-center font-semibold disabled:opacity-60"
-                        placeholder="e.g. 500 or 12"
+                        className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
+                        placeholder="e.g. 100"
                         min="0.01"
                         required
-                        disabled={capacityUnit === '%'}
                       />
                       <select 
                         value={capacityUnit} 
                         onChange={(e) => setCapacityUnit(e.target.value)}
                         className="p-2.5 rounded-lg glass-input bg-slate-900 w-32 font-semibold"
                       >
-                        <option value="pieces">pieces</option>
                         <option value="g">g (grams)</option>
                         <option value="ml">ml (milliliters)</option>
                         <option value="fl_oz">fl_oz (fl. oz.)</option>
-                        <option value="servings">servings</option>
-                        <option value="%">% (percentage)</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Track Inventory By:</label>
+                    <label className="block text-xs font-semibold text-slate-400">Reorder Threshold (Percentage Left):</label>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="number" 
+                        value={spiceReorderPercentage} 
+                        onChange={(e) => setSpiceReorderPercentage(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                        className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
+                        placeholder="e.g. 20"
+                        min="0"
+                        max="100"
+                        required
+                      />
+                      <span className="text-slate-400 font-bold">%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          ) : (
+            <>
+              {!isParent ? (
+                <>
+                  <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Package Size & Contents</h3>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-400 font-medium">
+                          One <span className="capitalize text-white">{packageType}</span> contains:
+                        </label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="number" 
+                            step="any"
+                            value={capacityValue} 
+                            onChange={(e) => setCapacityValue(e.target.value)}
+                            className="w-full p-2.5 rounded-lg glass-input text-center font-semibold disabled:opacity-60"
+                            placeholder="e.g. 500 or 12"
+                            min="0.01"
+                            required
+                            disabled={capacityUnit === '%'}
+                          />
+                          <select 
+                            value={capacityUnit} 
+                            onChange={(e) => setCapacityUnit(e.target.value)}
+                            className="p-2.5 rounded-lg glass-input bg-slate-900 w-32 font-semibold"
+                          >
+                            <option value="pieces">pieces</option>
+                            <option value="g">g (grams)</option>
+                            <option value="ml">ml (milliliters)</option>
+                            <option value="fl_oz">fl_oz (fl. oz.)</option>
+                            <option value="servings">servings</option>
+                            <option value="%">% (percentage)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-400">Track Inventory By:</label>
+                        <select 
+                          value={defaultUnit} 
+                          onChange={(e) => setDefaultUnit(e.target.value)}
+                          className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
+                          required
+                        >
+                          {getTrackingUnitOptions().map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="col-span-1 sm:col-span-2 border-t border-slate-800/60 pt-3 mt-1 space-y-3">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-350">
+                          <input 
+                            type="checkbox" 
+                            checked={hasCustomServing} 
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setHasCustomServing(checked);
+                              if (checked) {
+                                setServingsPerPackageValue(1.0);
+                                setServingSizeValue(parseFloat(capacityValue) || 1.0);
+                                setServingUnit(capacityUnit || 'pieces');
+                                setCalorieMode('per_serving');
+                              } else {
+                                setCalorieMode('per_unit');
+                              }
+                            }}
+                            className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          Define portions/servings count for this package (e.g. 20 servings)
+                        </label>
+
+                        {hasCustomServing && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in">
+                            <div className="space-y-1.5">
+                              <label className="block text-xs font-semibold text-slate-400">Portions / Servings count</label>
+                              <div className="flex items-center gap-2">
+                                <input 
+                                  type="number" 
+                                  step="any"
+                                  value={servingsPerPackageValue} 
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    setServingsPerPackageValue(e.target.value);
+                                    if (val > 0) {
+                                      setServingSizeValue((parseFloat(capacityValue) || 1.0) / val);
+                                    }
+                                  }}
+                                  className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
+                                  placeholder="e.g. 20"
+                                  min="0.01"
+                                  required
+                                />
+                                <span className="text-sm text-slate-400 w-16 text-left">servings</span>
+                              </div>
+                            </div>
+                            <div className="flex items-end pb-2">
+                              <span className="text-[11px] text-slate-500 font-medium italic">
+                                Calculated: 1 serving = {((parseFloat(capacityValue) || 1.0) / (parseFloat(servingsPerPackageValue) || 1.0)).toFixed(2)} {capacityUnit}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Calories & Nutrition</h3>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-400 font-medium">Calories Specified Per:</label>
+                        <select 
+                          value={calorieMode} 
+                          onChange={(e) => setCalorieMode(e.target.value)}
+                          className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
+                        >
+                          {hasCustomServing && (
+                            <option value="per_serving">1 serving</option>
+                          )}
+                          <option value="per_unit">1 {capacityUnit === 'pieces' ? 'piece' : capacityUnit === 'servings' ? 'serving' : capacityUnit}</option>
+                          {(capacityUnit === 'g' || capacityUnit === 'ml' || capacityUnit === 'fl_oz') && (
+                            <option value="per_100">100 {capacityUnit}</option>
+                          )}
+                          <option value="per_package">Entire {packageType} ({capacityValue} {capacityUnit})</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-400">Calories (kcal)</label>
+                        <input 
+                          type="number" 
+                          value={caloriesValue} 
+                          onChange={(e) => setCaloriesValue(e.target.value)}
+                          className="w-full p-2.5 rounded-lg glass-input font-semibold"
+                          placeholder="e.g. 150 (Optional)"
+                          min="0"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Package Details</h3>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-400 font-medium">Track Inventory By:</label>
                     <select 
                       value={defaultUnit} 
                       onChange={(e) => setDefaultUnit(e.target.value)}
@@ -513,174 +690,67 @@ export default function ProductModal({
                       ))}
                     </select>
                   </div>
-
-                  <div className="col-span-1 sm:col-span-2 border-t border-slate-800/60 pt-3 mt-1 space-y-3">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-350">
-                      <input 
-                        type="checkbox" 
-                        checked={hasCustomServing} 
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setHasCustomServing(checked);
-                          if (checked) {
-                            setServingsPerPackageValue(1.0);
-                            setServingSizeValue(parseFloat(capacityValue) || 1.0);
-                            setServingUnit(capacityUnit || 'pieces');
-                            setCalorieMode('per_serving');
-                          } else {
-                            setCalorieMode('per_unit');
-                          }
-                        }}
-                        className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      Define portions/servings count for this package (e.g. 20 servings)
-                    </label>
-
-                    {hasCustomServing && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in">
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-semibold text-slate-400">Portions / Servings count</label>
-                          <div className="flex items-center gap-2">
-                            <input 
-                              type="number" 
-                              step="any"
-                              value={servingsPerPackageValue} 
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value) || 0;
-                                setServingsPerPackageValue(e.target.value);
-                                if (val > 0) {
-                                  setServingSizeValue((parseFloat(capacityValue) || 1.0) / val);
-                                }
-                              }}
-                              className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
-                              placeholder="e.g. 20"
-                              min="0.01"
-                              required
-                            />
-                            <span className="text-sm text-slate-400 w-16 text-left">servings</span>
-                          </div>
-                        </div>
-                        <div className="flex items-end pb-2">
-                          <span className="text-[11px] text-slate-500 font-medium italic">
-                            Calculated: 1 serving = {((parseFloat(capacityValue) || 1.0) / (parseFloat(servingsPerPackageValue) || 1.0)).toFixed(2)} {capacityUnit}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
+              )}
+
+              {(isParent || !parentProductId) && (
+                <div className="space-y-1.5 bg-indigo-950/20 p-3 rounded-lg border border-indigo-500/10">
+                  <label className="block text-xs font-semibold text-indigo-300">
+                    Inventory Minimum Alert Threshold (in {defaultUnit})
+                  </label>
+                  <input 
+                    type="number" 
+                    step="any"
+                    value={minimumStock} 
+                    onChange={(e) => setMinimumStock(e.target.value)}
+                    className="w-full p-2.5 rounded-lg glass-input"
+                    min="0"
+                    placeholder="e.g. 1000"
+                  />
+                  <span className="text-[11px] text-slate-500 block mt-1">
+                    When remaining stock of this product (and all child brands) drops below this number, it auto-appears on the shopping list. Set to 0 to disable.
+                  </span>
+                </div>
+              )}
+
+              <div className="space-y-1.5 bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Default Consumption Servings
+                </label>
+                <input 
+                  type="number" 
+                  step="any"
+                  value={defaultConsumption} 
+                  onChange={(e) => setDefaultConsumption(e.target.value)}
+                  className="w-full p-2.5 rounded-lg glass-input"
+                  min="0.1"
+                  placeholder="e.g. 1.0"
+                />
+                <span className="text-[11px] text-slate-500 block mt-1">
+                  How many servings you typically consume at a time. The Inventory page will pre-fill its consumption field to this.
+                </span>
               </div>
 
-              <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Calories & Nutrition</h3>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400 font-medium">Calories Specified Per:</label>
-                    <select 
-                      value={calorieMode} 
-                      onChange={(e) => setCalorieMode(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
-                    >
-                      {hasCustomServing && (
-                        <option value="per_serving">1 serving</option>
-                      )}
-                      <option value="per_unit">1 {capacityUnit === 'pieces' ? 'piece' : capacityUnit === 'servings' ? 'serving' : capacityUnit}</option>
-                      {(capacityUnit === 'g' || capacityUnit === 'ml' || capacityUnit === 'fl_oz') && (
-                        <option value="per_100">100 {capacityUnit}</option>
-                      )}
-                      <option value="per_package">Entire {packageType} ({capacityValue} {capacityUnit})</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Calories (kcal)</label>
-                    <input 
-                      type="number" 
-                      value={caloriesValue} 
-                      onChange={(e) => setCaloriesValue(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input font-semibold"
-                      placeholder="e.g. 150 (Optional)"
-                      min="0"
-                    />
-                  </div>
+              {!isParent && (
+                <div className="space-y-1.5 bg-slate-900/40 p-3 rounded-lg border border-slate-800 animate-fade-in">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Use-by Shelf Life After Opening (Days)
+                  </label>
+                  <input 
+                    type="number" 
+                    step="1"
+                    value={useByDaysAfterOpening} 
+                    onChange={(e) => setUseByDaysAfterOpening(e.target.value)}
+                    className="w-full p-2.5 rounded-lg glass-input"
+                    min="1"
+                    placeholder="e.g. 5 (Optional)"
+                  />
+                  <span className="text-[11px] text-slate-500 block mt-1">
+                    Shelf life in days once opened. Enables early expiration warnings for opened packages. Leave blank to disable.
+                  </span>
                 </div>
-              </div>
+              )}
             </>
-          ) : (
-            <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Package Details</h3>
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-400 font-medium">Track Inventory By:</label>
-                <select 
-                  value={defaultUnit} 
-                  onChange={(e) => setDefaultUnit(e.target.value)}
-                  className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold"
-                  required
-                >
-                  {getTrackingUnitOptions().map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {(isParent || !parentProductId) && (
-            <div className="space-y-1.5 bg-indigo-950/20 p-3 rounded-lg border border-indigo-500/10">
-              <label className="block text-xs font-semibold text-indigo-300">
-                Inventory Minimum Alert Threshold (in {defaultUnit})
-              </label>
-              <input 
-                type="number" 
-                step="any"
-                value={minimumStock} 
-                onChange={(e) => setMinimumStock(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input"
-                min="0"
-                placeholder="e.g. 1000"
-              />
-              <span className="text-[11px] text-slate-500 block mt-1">
-                When remaining stock of this product (and all child brands) drops below this number, it auto-appears on the shopping list. Set to 0 to disable.
-              </span>
-            </div>
-          )}
-
-          <div className="space-y-1.5 bg-slate-900/40 p-3 rounded-lg border border-slate-800">
-            <label className="block text-xs font-semibold text-slate-300">
-              Default Consumption Servings
-            </label>
-            <input 
-              type="number" 
-              step="any"
-              value={defaultConsumption} 
-              onChange={(e) => setDefaultConsumption(e.target.value)}
-              className="w-full p-2.5 rounded-lg glass-input"
-              min="0.1"
-              placeholder="e.g. 1.0"
-            />
-            <span className="text-[11px] text-slate-500 block mt-1">
-              How many servings you typically consume at a time. The Inventory page will pre-fill its consumption field to this.
-            </span>
-          </div>
-
-          {!isParent && (
-            <div className="space-y-1.5 bg-slate-900/40 p-3 rounded-lg border border-slate-800 animate-fade-in">
-              <label className="block text-xs font-semibold text-slate-300">
-                Use-by Shelf Life After Opening (Days)
-              </label>
-              <input 
-                type="number" 
-                step="1"
-                value={useByDaysAfterOpening} 
-                onChange={(e) => setUseByDaysAfterOpening(e.target.value)}
-                className="w-full p-2.5 rounded-lg glass-input"
-                min="1"
-                placeholder="e.g. 5 (Optional)"
-              />
-              <span className="text-[11px] text-slate-500 block mt-1">
-                Shelf life in days once opened. Enables early expiration warnings for opened packages. Leave blank to disable.
-              </span>
-            </div>
           )}
 
           <div className="space-y-1.5">

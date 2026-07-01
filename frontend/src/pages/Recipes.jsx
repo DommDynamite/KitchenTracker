@@ -212,6 +212,43 @@ export default function Recipes({ settings = {} }) {
     }
   };
 
+  const handleUpdateSpicePercentage = async (productId, newPercentage) => {
+    try {
+      const res = await fetch(`/api/spices/${productId}/percentage`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ percentage: newPercentage })
+      });
+      if (res.ok) {
+        showToast('Spice percentage updated!', 'success');
+        setActiveRecipeDetails(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            ingredients: prev.ingredients.map(ing => {
+              if (ing.product_id === productId) {
+                const totalConts = newPercentage === 0 ? Math.max(0, ing.totalContainers - 1) : ing.totalContainers;
+                const nextPct = newPercentage === 0 && totalConts > 0 ? 100 : newPercentage;
+                return {
+                  ...ing,
+                  activePercentage: nextPct,
+                  totalContainers: totalConts,
+                  inStock: totalConts > 0
+                };
+              }
+              return ing;
+            })
+          };
+        });
+      } else {
+        showToast('Failed to update spice level', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error updating spice level', 'error');
+    }
+  };
+
   const fetchRecipeDetails = async (id) => {
     try {
       const res = await fetch(`/api/recipes/${id}`);
@@ -1158,19 +1195,55 @@ export default function Recipes({ settings = {} }) {
                       </span>
                     </div>
                     {ing.product_id ? (
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <span className="text-xs text-slate-500 block">In stock</span>
-                          <span className={`text-xs font-bold ${ing.inStock ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {ing.availableAmount.toFixed(1)} {ing.prod_unit}
-                          </span>
+                      ing.is_spice ? (
+                        <div className="flex items-center gap-3">
+                          <div className="text-right flex items-center gap-2">
+                            <span className="text-[10.5px] text-slate-500 block">Active Fill:</span>
+                            <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 select-none">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateSpicePercentage(ing.product_id, Math.max(0, ing.activePercentage - 10))}
+                                className="px-1.5 py-0.5 text-xs font-bold text-rose-400 hover:bg-slate-850 rounded cursor-pointer transition-colors active:scale-95"
+                                title="Decrease 10%"
+                              >
+                                -
+                              </button>
+                              <span className={`text-[10.5px] font-extrabold px-1 font-mono ${
+                                ing.activePercentage < (ing.spice_reorder_percentage || 20) ? 'text-rose-400' : 'text-emerald-400'
+                              }`}>
+                                {ing.totalContainers === 0 ? '0%' : `${ing.activePercentage}%`}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateSpicePercentage(ing.product_id, Math.min(100, ing.activePercentage + 10))}
+                                className="px-1.5 py-0.5 text-xs font-bold text-emerald-400 hover:bg-slate-850 rounded cursor-pointer transition-colors active:scale-95"
+                                title="Increase 10%"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                          <div className={`p-1.5 rounded-full ${
+                            ing.inStock ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                          }`}>
+                            {ing.inStock ? <Check className="h-4.5 w-4.5" /> : <X className="h-4.5 w-4.5" />}
+                          </div>
                         </div>
-                        <div className={`p-1.5 rounded-full ${
-                          ing.inStock ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        }`}>
-                          {ing.inStock ? <Check className="h-4.5 w-4.5" /> : <X className="h-4.5 w-4.5" />}
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <span className="text-xs text-slate-500 block">In stock</span>
+                            <span className={`text-xs font-bold ${ing.inStock ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {ing.availableAmount.toFixed(1)} {ing.prod_unit}
+                            </span>
+                          </div>
+                          <div className={`p-1.5 rounded-full ${
+                            ing.inStock ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                          }`}>
+                            {ing.inStock ? <Check className="h-4.5 w-4.5" /> : <X className="h-4.5 w-4.5" />}
+                          </div>
                         </div>
-                      </div>
+                      )
                     ) : (
                       <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700 font-semibold select-none">
                         Not Tracked

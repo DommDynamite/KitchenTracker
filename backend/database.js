@@ -49,6 +49,8 @@ export async function initDb() {
       package_type TEXT DEFAULT 'package',
       calories_per_serving INTEGER DEFAULT NULL,
       is_parent INTEGER DEFAULT 0,
+      is_spice INTEGER DEFAULT 0,
+      spice_reorder_percentage REAL DEFAULT 20.0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (parent_product_id) REFERENCES products(id) ON DELETE SET NULL
     );
@@ -89,6 +91,20 @@ export async function initDb() {
     // Column already exists, safe to ignore
   }
 
+  // Migration: Add is_spice column to existing products table if it doesn't exist
+  try {
+    await db.exec("ALTER TABLE products ADD COLUMN is_spice INTEGER DEFAULT 0;");
+  } catch (e) {
+    // Column already exists, safe to ignore
+  }
+
+  // Migration: Add spice_reorder_percentage column to existing products table if it doesn't exist
+  try {
+    await db.exec("ALTER TABLE products ADD COLUMN spice_reorder_percentage REAL DEFAULT 20.0;");
+  } catch (e) {
+    // Column already exists, safe to ignore
+  }
+
   // Migration: Update existing parent products to is_parent = 1
   try {
     await db.exec(`
@@ -107,6 +123,7 @@ export async function initDb() {
   // Create indexes for performance
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_products_parent ON products(parent_product_id);`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_products_is_spice ON products(is_spice);`);
 
   // 2. inventory_items table
   await db.exec(`

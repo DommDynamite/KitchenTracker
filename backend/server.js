@@ -119,7 +119,7 @@ async function getStockLevels() {
 
   const activeInventory = await db.all(`
     SELECT ii.*, p.default_unit as prod_unit, p.serving_size as prod_serving_size, 
-           p.serving_unit as prod_serving_unit, p.parent_product_id, p.name as prod_name, p.brand as prod_brand
+           p.serving_unit as prod_serving_unit, p.parent_product_id, p.name as prod_name, p.brand as prod_brand, p.is_spice
     FROM inventory_items ii
     JOIN products p ON ii.product_id = p.id
     WHERE ii.status IN ('unopened', 'opened')
@@ -138,37 +138,77 @@ async function getStockLevels() {
     // Filter active inventory belonging to this product group
     const groupInventory = activeInventory.filter(item => ids.includes(item.product_id));
     
-    let totalInDefaultUnit = 0;
+    if (product.is_spice) {
+      // Spice rack low stock logic
+      const totalContainers = groupInventory.length;
+      let isLow = false;
+      let shortage = 0;
+      let notes = '';
+      
+      const reorderThreshold = product.spice_reorder_percentage !== null && product.spice_reorder_percentage !== undefined 
+        ? product.spice_reorder_percentage 
+        : 20.0;
+      
+      if (totalContainers === 0) {
+        isLow = true;
+        shortage = 1.0;
+        notes = `Auto-generated: Spice ${product.name} is completely out of stock.`;
+      } else {
+        // Find active container (opened, or oldest unopened if no opened exists)
+        const activeItem = groupInventory.find(item => item.status === 'opened') || groupInventory[0];
+        const activePercentage = activeItem.remaining_servings * 100;
+        
+        if (totalContainers === 1 && activePercentage < reorderThreshold) {
+          isLow = true;
+          shortage = 1.0;
+          notes = `Auto-generated: Spice ${product.name} active container (${activePercentage.toFixed(0)}%) is below reorder threshold (${reorderThreshold}%).`;
+        }
+      }
+      
+      stockMap.push({
+        productId: product.id,
+        name: product.name,
+        category: product.category,
+        defaultUnit: product.default_unit,
+        minimumStock: 0,
+        currentStock: totalContainers,
+        isLow: isLow,
+        shortage: shortage,
+        notes: notes
+      });
+    } else {
+      // Standard product stock logic
+      let totalInDefaultUnit = 0;
 
-    for (const item of groupInventory) {
-      // Calculate remaining servings in default units
-      // remaining_servings * serving_size (in serving_unit) = amount in serving_unit
-      const servingSize = item.prod_serving_size || 1.0;
-      const servingUnit = item.prod_serving_unit || item.prod_unit;
-      
-      const amountInServingUnit = item.remaining_servings * servingSize;
-      
-      // Convert amount from child's serving_unit to parent's default_unit
-      const amountInParentUnit = convertUnit(
-        amountInServingUnit,
-        servingUnit,
-        product.default_unit,
-        product
-      );
-      
-      totalInDefaultUnit += amountInParentUnit;
+      for (const item of groupInventory) {
+        // Calculate remaining servings in default units
+        const servingSize = item.prod_serving_size || 1.0;
+        const servingUnit = item.prod_serving_unit || item.prod_unit;
+        
+        const amountInServingUnit = item.remaining_servings * servingSize;
+        
+        // Convert amount from child's serving_unit to parent's default_unit
+        const amountInParentUnit = convertUnit(
+          amountInServingUnit,
+          servingUnit,
+          product.default_unit,
+          product
+        );
+        
+        totalInDefaultUnit += amountInParentUnit;
+      }
+
+      stockMap.push({
+        productId: product.id,
+        name: product.name,
+        category: product.category,
+        defaultUnit: product.default_unit,
+        minimumStock: product.minimum_stock,
+        currentStock: totalInDefaultUnit,
+        isLow: product.minimum_stock > 0 && totalInDefaultUnit < product.minimum_stock,
+        shortage: Math.max(0, product.minimum_stock - totalInDefaultUnit)
+      });
     }
-
-    stockMap.push({
-      productId: product.id,
-      name: product.name,
-      category: product.category,
-      defaultUnit: product.default_unit,
-      minimumStock: product.minimum_stock,
-      currentStock: totalInDefaultUnit,
-      isLow: product.minimum_stock > 0 && totalInDefaultUnit < product.minimum_stock,
-      shortage: Math.max(0, product.minimum_stock - totalInDefaultUnit)
-    });
   }
 
   return stockMap;
@@ -183,20 +223,42 @@ app.get('/api/products', async (req, res) => {
   try {
     const db = await getDb();
     const queryParent = req.query.parentsOnly === 'true';
+    const isSpice = req.query.is_spice;
     
-    let products;
+    let query;
+    let params = [];
+    let conditions = [];
+    
     if (queryParent) {
-      products = await db.all('SELECT * FROM products WHERE parent_product_id IS NULL ORDER BY name ASC');
+      query = 'SELECT * FROM products';
+      conditions.push('(parent_product_id IS NULL OR parent_product_id = "")');
     } else {
-      // Fetch products and resolve parent names if any
-      products = await db.all(`
+      query = `
         SELECT p1.*, p2.name as parent_name 
         FROM products p1
         LEFT JOIN products p2 ON p1.parent_product_id = p2.id
-        ORDER BY p1.name ASC
-      `);
+      `;
     }
     
+    if (isSpice === 'true') {
+      conditions.push('p1.is_spice = 1');
+    } else if (isSpice === 'false') {
+      conditions.push('(p1.is_spice = 0 OR p1.is_spice IS NULL)');
+    }
+    
+    if (conditions.length > 0) {
+      const cleanConditions = conditions.map(c => {
+        if (queryParent) {
+          return c.replace(/p1\./g, '');
+        }
+        return c;
+      });
+      query += ' WHERE ' + cleanConditions.join(' AND ');
+    }
+    
+    query += queryParent ? ' ORDER BY name ASC' : ' ORDER BY p1.name ASC';
+    
+    const products = await db.all(query, params);
     await enrichProductsWithInheritedProperties(db, products);
     res.json(products);
   } catch (err) {
@@ -348,16 +410,27 @@ app.delete('/api/products/:id', async (req, res) => {
 app.get('/api/inventory', async (req, res) => {
   try {
     const db = await getDb();
-    const inventory = await db.all(`
+    const isSpice = req.query.is_spice;
+    
+    let query = `
       SELECT ii.*, p.name as product_name, p.brand as product_brand, p.image_path as product_image,
              p.category as product_category, p.default_unit as product_unit, 
              p.servings_per_package, p.serving_size, p.serving_unit, p.default_consumption,
-             p.use_by_days_after_opening, p.parent_product_id
+             p.use_by_days_after_opening, p.parent_product_id, p.is_spice
       FROM inventory_items ii
       JOIN products p ON ii.product_id = p.id
       WHERE ii.status IN ('unopened', 'opened')
-      ORDER BY ii.expiration_date ASC, ii.purchase_date ASC
-    `);
+    `;
+    
+    if (isSpice === 'true') {
+      query += ' AND p.is_spice = 1';
+    } else {
+      query += ' AND (p.is_spice = 0 OR p.is_spice IS NULL)';
+    }
+    
+    query += ' ORDER BY ii.expiration_date ASC, ii.purchase_date ASC';
+    
+    const inventory = await db.all(query);
     res.json(inventory);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -763,6 +836,236 @@ app.get('/api/inventory/stores', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// SPICE RACK ROUTES
+// ----------------------------------------------------
+
+// Get spices with active inventory levels and backups
+app.get('/api/spices', async (req, res) => {
+  try {
+    const db = await getDb();
+    
+    // Fetch all parent or standalone spice products
+    const parentSpices = await db.all(`
+      SELECT * FROM products 
+      WHERE is_spice = 1 AND (parent_product_id IS NULL OR parent_product_id = '')
+      ORDER BY name ASC
+    `);
+    
+    await enrichProductsWithInheritedProperties(db, parentSpices);
+    
+    const spicesList = [];
+    
+    for (const parent of parentSpices) {
+      // Fetch all child products (specific brands) for this parent
+      const childProducts = await db.all(
+        'SELECT * FROM products WHERE parent_product_id = ? OR id = ?',
+        [parent.id, parent.id]
+      );
+      await enrichProductsWithInheritedProperties(db, childProducts);
+      
+      const productIds = childProducts.map(p => p.id);
+      
+      // Fetch all active inventory items for this spice group, sorting active first
+      const activeItems = await db.all(`
+        SELECT ii.*, p.name as product_name, p.brand as product_brand, 
+               p.serving_size as prod_serving_size, p.serving_unit as prod_serving_unit
+        FROM inventory_items ii
+        JOIN products p ON ii.product_id = p.id
+        WHERE ii.product_id IN (${productIds.map(() => '?').join(',')}) AND ii.status IN ('unopened', 'opened')
+        ORDER BY CASE WHEN ii.status = 'opened' THEN 0 ELSE 1 END ASC, ii.expiration_date ASC, ii.purchase_date ASC
+      `, productIds);
+      
+      // Find active container (opened, or oldest unopened if no opened one exists)
+      const activeItem = activeItems[0] || null;
+      
+      // Count backup containers (all activeItems excluding the active one)
+      const totalContainers = activeItems.length;
+      const backupCount = Math.max(0, totalContainers - (activeItem ? 1 : 0));
+      
+      let activePercentage = 0;
+      if (activeItem) {
+        activePercentage = Math.round(activeItem.remaining_servings * 100);
+      }
+      
+      // Expiration: expiration of the active item
+      const expirationDate = activeItem ? activeItem.expiration_date : null;
+      
+      spicesList.push({
+        product: parent,
+        brands: childProducts.filter(c => c.brand), // List of available child brands/options
+        activeItem: activeItem,
+        activePercentage: activePercentage,
+        backupCount: backupCount,
+        totalContainers: totalContainers,
+        expirationDate: expirationDate
+      });
+    }
+    
+    res.json(spicesList);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update percentage left of active container, auto-rotating backups if 0%
+app.put('/api/spices/:productId/percentage', async (req, res) => {
+  const productId = parseInt(req.params.productId);
+  const { percentage } = req.body;
+  
+  if (percentage === undefined || percentage === null) {
+    return res.status(400).json({ error: 'percentage is required' });
+  }
+  
+  const pct = Math.max(0, Math.min(100, parseFloat(percentage)));
+  
+  try {
+    const db = await getDb();
+    await db.run('BEGIN TRANSACTION');
+    
+    // Fetch all related product IDs (parent + children)
+    const childProducts = await db.all(
+      'SELECT id FROM products WHERE parent_product_id = ? OR id = ?',
+      [productId, productId]
+    );
+    const productIds = childProducts.map(p => p.id);
+    
+    // Find active opened inventory item
+    let activeItem = await db.get(`
+      SELECT * FROM inventory_items 
+      WHERE product_id IN (${productIds.map(() => '?').join(',')}) AND status = 'opened'
+      ORDER BY expiration_date ASC, purchase_date ASC
+      LIMIT 1
+    `, productIds);
+    
+    // If no opened, find oldest unopened
+    if (!activeItem) {
+      activeItem = await db.get(`
+        SELECT * FROM inventory_items 
+        WHERE product_id IN (${productIds.map(() => '?').join(',')}) AND status = 'unopened'
+        ORDER BY expiration_date ASC, purchase_date ASC
+        LIMIT 1
+      `, productIds);
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (!activeItem) {
+      // Create a new active item if none exists and percentage > 0
+      if (pct > 0) {
+        await db.run(`
+          INSERT INTO inventory_items (product_id, quantity, original_servings, remaining_servings, status, purchase_date, opened_date)
+          VALUES (?, 1.0, 1.0, ?, 'opened', ?, ?)
+        `, [productId, pct / 100, today, today]);
+      }
+    } else {
+      if (pct > 0) {
+        // Update active item percentage
+        await db.run(`
+          UPDATE inventory_items 
+          SET remaining_servings = ?, status = 'opened', opened_date = COALESCE(opened_date, ?)
+          WHERE id = ?
+        `, [pct / 100, today, activeItem.id]);
+      } else {
+        // Consume active item
+        await db.run(`
+          UPDATE inventory_items 
+          SET remaining_servings = 0.0, status = 'consumed'
+          WHERE id = ?
+        `, [activeItem.id]);
+        
+        // Look for unopened backups
+        const backupItem = await db.get(`
+          SELECT * FROM inventory_items 
+          WHERE product_id IN (${productIds.map(() => '?').join(',')}) AND status = 'unopened'
+          ORDER BY expiration_date ASC, purchase_date ASC
+          LIMIT 1
+        `, productIds);
+        
+        if (backupItem) {
+          // Activate backup
+          await db.run(`
+            UPDATE inventory_items 
+            SET status = 'opened', remaining_servings = 1.0, opened_date = ?
+            WHERE id = ?
+          `, [today, backupItem.id]);
+        }
+      }
+    }
+    
+    await db.run('COMMIT');
+    res.json({ success: true, message: 'Spice percentage updated successfully' });
+  } catch (err) {
+    const db = await getDb();
+    try { await db.run('ROLLBACK'); } catch (e) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Quick log new jars/bottles of spice
+app.post('/api/spices/quick-add', async (req, res) => {
+  const { product_id, quantity, expiration_date, percentage } = req.body;
+  
+  if (!product_id || !quantity) {
+    return res.status(400).json({ error: 'product_id and quantity are required' });
+  }
+  
+  const qty = parseInt(quantity);
+  const pct = percentage !== undefined ? Math.max(0, Math.min(100, parseFloat(percentage))) : 100.0;
+  const today = new Date().toISOString().split('T')[0];
+  
+  try {
+    const db = await getDb();
+    await db.run('BEGIN TRANSACTION');
+    
+    // Retrieve product to check if there are any other active items
+    const childProducts = await db.all(
+      'SELECT id FROM products WHERE parent_product_id = ? OR id = ?',
+      [product_id, product_id]
+    );
+    const productIds = childProducts.map(p => p.id);
+    
+    const hasActive = await db.get(`
+      SELECT id FROM inventory_items 
+      WHERE product_id IN (${productIds.map(() => '?').join(',')}) AND status = 'opened'
+      LIMIT 1
+    `, productIds);
+    
+    // Insert separate rows of 1 container each.
+    for (let i = 0; i < qty; i++) {
+      // If we don't have any currently active item in stock, make the first one active/opened
+      const shouldBeOpened = i === 0 && !hasActive;
+      const status = shouldBeOpened ? 'opened' : 'unopened';
+      const rem = shouldBeOpened ? pct / 100 : 1.0;
+      const openedDate = status === 'opened' ? today : null;
+      
+      await db.run(`
+        INSERT INTO inventory_items (product_id, quantity, original_servings, remaining_servings, status, purchase_date, expiration_date, opened_date)
+        VALUES (?, 1.0, 1.0, ?, ?, ?, ?, ?)
+      `, [product_id, rem, status, today, expiration_date || null, openedDate]);
+    }
+    
+    await db.run('COMMIT');
+    res.json({ success: true, message: 'Spice containers logged successfully' });
+  } catch (err) {
+    const db = await getDb();
+    try { await db.run('ROLLBACK'); } catch (e) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a specific spice container from active inventory
+app.delete('/api/spices/inventory/:itemId', async (req, res) => {
+  const itemId = parseInt(req.params.itemId);
+  try {
+    const db = await getDb();
+    await db.run('DELETE FROM inventory_items WHERE id = ?', [itemId]);
+    res.json({ success: true, message: 'Spice container deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
 // STORAGE LOCATION ROUTES
 // ----------------------------------------------------
 
@@ -1063,6 +1366,16 @@ app.get('/api/recipes/:id', async (req, res) => {
 
         await enrichProductsWithInheritedProperties(db, referencedProducts);
 
+        // Fetch active inventory items for referenced products and their children to resolve spice details
+        const activeInventoryItems = await db.all(`
+          SELECT ii.*, p.parent_product_id
+          FROM inventory_items ii
+          JOIN products p ON ii.product_id = p.id
+          WHERE (ii.product_id IN (${productIds.map(() => '?').join(',')}) 
+                 OR p.parent_product_id IN (${productIds.map(() => '?').join(',')}))
+                AND ii.status IN ('unopened', 'opened')
+        `, [...productIds, ...productIds]);
+
         // Map back to ingredients
         ingredients.forEach(ing => {
           if (ing.product_id) {
@@ -1076,6 +1389,26 @@ app.get('/api/recipes/:id', async (req, res) => {
               ing.calories_per_serving = p.calories_per_serving;
               ing.servings_per_package = p.servings_per_package;
               ing.package_type = p.package_type;
+              ing.is_spice = p.is_spice;
+              ing.spice_reorder_percentage = p.spice_reorder_percentage;
+
+              if (p.is_spice) {
+                // Find all active inventory items belonging to this spice product or child brands
+                const spiceItems = activeInventoryItems.filter(item => 
+                  item.product_id === ing.product_id || item.parent_product_id === ing.product_id
+                );
+                
+                // Sort active first
+                const sortedSpices = spiceItems.sort((a, b) => {
+                  if (a.status === 'opened' && b.status !== 'opened') return -1;
+                  if (a.status !== 'opened' && b.status === 'opened') return 1;
+                  return new Date(a.expiration_date || '') - new Date(b.expiration_date || '');
+                });
+                
+                const activeItem = sortedSpices[0] || null;
+                ing.activePercentage = activeItem ? Math.round(activeItem.remaining_servings * 100) : 0;
+                ing.totalContainers = sortedSpices.length;
+              }
             }
           } else {
             ing.product_name = ing.name || 'Unlinked Ingredient';
@@ -1102,6 +1435,16 @@ app.get('/api/recipes/:id', async (req, res) => {
           servings_per_package: ing.servings_per_package,
           package_type: ing.package_type
         };
+
+        if (ing.is_spice) {
+          // Spice stock availability logic
+          return {
+            ...ing,
+            inStock: ing.totalContainers > 0,
+            availableAmount: ing.totalContainers,
+            requiredInProdUnit: 1.0 // represented as containers count
+          };
+        }
 
         // Calculate servings needed and add to total calories
         const servingsNeeded = convertUnit(ing.amount, ing.unit, 'servings', productForConv);

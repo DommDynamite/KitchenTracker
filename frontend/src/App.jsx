@@ -9,13 +9,15 @@ import {
   Camera, 
   Menu, 
   X,
-  Settings
+  Settings,
+  ChefHat
 } from 'lucide-react';
 
 // Import Pages
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Inventory from './pages/Inventory';
+import SpiceRack from './pages/SpiceRack';
 import Recipes from './pages/Recipes';
 import ShoppingList from './pages/ShoppingList';
 import Scan from './pages/Scan';
@@ -73,6 +75,7 @@ function Navigation({ settings }) {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/inventory', label: 'Inventory', icon: ShoppingBag },
+    { path: '/spice-rack', label: 'Spice Rack', icon: ChefHat },
     { path: '/products', label: 'Products', icon: Database },
     { path: '/recipes', label: 'Recipes', icon: BookOpen },
     { path: '/shopping-list', label: 'Shopping List', icon: ShoppingCart },
@@ -181,7 +184,7 @@ function Navigation({ settings }) {
 
       {/* Mobile Bottom Navigation Bar (App-like feel) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 glass-panel border-t border-slate-800/80 px-2 py-1.5 flex justify-around">
-        {navItems.filter(item => item.path !== '/settings').map(item => {
+        {navItems.filter(item => item.path !== '/settings' && item.path !== '/products' && item.path !== '/scan').map(item => {
           const Icon = item.icon;
           const active = isActive(item.path);
           return (
@@ -237,6 +240,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/products" element={<Products />} />
               <Route path="/inventory" element={<Inventory />} />
+              <Route path="/spice-rack" element={<SpiceRack settings={settings} />} />
               <Route path="/recipes" element={<Recipes settings={settings} />} />
               <Route path="/shopping-list" element={<ShoppingList />} />
               <Route path="/scan" element={<Scan settings={settings} />} />
