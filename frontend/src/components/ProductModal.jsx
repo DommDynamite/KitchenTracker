@@ -198,7 +198,7 @@ export default function ProductModal({
         setSpiceReorderPercentage(20);
       }
     }
-  }, [isOpen, editingProduct, prefilledBarcode, categories, prefilledParentProductId, prefilledCategory, prefilledName, prefilledBrand, isSpiceMode]);
+  }, [isOpen, editingProduct]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -478,11 +478,13 @@ export default function ProductModal({
           )}
 
           {isSpiceMode ? (
-            !isParent && (
-              <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Spice Capacity & Reorder Level</h3>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-950/5 space-y-4 animate-fade-in">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                {isParent ? 'Spice Category Reorder Level' : 'Spice Specifications'}
+              </h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {!isParent && (
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-slate-400 font-medium">
                       Jar/Bottle Capacity:
@@ -496,7 +498,7 @@ export default function ProductModal({
                         className="w-full p-2.5 rounded-lg glass-input text-center font-semibold"
                         placeholder="e.g. 100"
                         min="0.01"
-                        required
+                        required={!isParent}
                       />
                       <select 
                         value={capacityUnit} 
@@ -509,9 +511,13 @@ export default function ProductModal({
                       </select>
                     </div>
                   </div>
+                )}
 
+                {(isParent || !parentProductId) && (
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-400">Reorder Threshold (Percentage Left):</label>
+                    <label className="block text-xs font-semibold text-slate-400">
+                      Reorder Threshold (Percentage Left):
+                    </label>
                     <div className="flex items-center gap-2">
                       <input 
                         type="number" 
@@ -521,14 +527,14 @@ export default function ProductModal({
                         placeholder="e.g. 20"
                         min="0"
                         max="100"
-                        required
+                        required={isParent || !parentProductId}
                       />
                       <span className="text-slate-400 font-bold">%</span>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
-            )
+            </div>
           ) : (
             <>
               {!isParent ? (
