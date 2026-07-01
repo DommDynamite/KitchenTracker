@@ -246,6 +246,11 @@ app.get('/api/products', async (req, res) => {
       conditions.push('(p1.is_spice = 0 OR p1.is_spice IS NULL)');
     }
     
+    if (req.query.parent_product_id) {
+      conditions.push('p1.parent_product_id = ?');
+      params.push(req.query.parent_product_id);
+    }
+    
     if (conditions.length > 0) {
       const cleanConditions = conditions.map(c => {
         if (queryParent) {
@@ -336,8 +341,18 @@ app.post('/api/products', async (req, res) => {
   const isSpiceVal = (is_spice === 1 || is_spice === true) ? 1 : 0;
   const spiceReorderPct = spice_reorder_percentage !== undefined ? parseFloat(spice_reorder_percentage) : 20.0;
 
+  let finalName = name;
+
   try {
     const db = await getDb();
+    
+    if (parentId) {
+      const parent = await db.get('SELECT name FROM products WHERE id = ?', [parentId]);
+      if (parent) {
+        finalName = brand ? `${brand.trim()} ${parent.name.trim()}` : parent.name.trim();
+      }
+    }
+
     const result = await db.run(
       `INSERT INTO products (
         name, barcode, parent_product_id, brand, category,
@@ -345,7 +360,7 @@ app.post('/api/products', async (req, res) => {
         package_type, calories_per_serving, is_parent, is_spice, spice_reorder_percentage
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        name, barcode || null, parentId, brand || null, category || null,
+        finalName, barcode || null, parentId, brand || null, category || null,
         default_unit, servingsPkg, sSize, sUnit,
         minimum_stock || 0.0, default_consumption || 1.0, useByDays, image_path || null,
         package_type || 'package', calPerSrv, isParentVal, isSpiceVal, spiceReorderPct
@@ -376,8 +391,18 @@ app.put('/api/products/:id', async (req, res) => {
   const isSpiceVal = (is_spice === 1 || is_spice === true) ? 1 : 0;
   const spiceReorderPct = spice_reorder_percentage !== undefined ? parseFloat(spice_reorder_percentage) : 20.0;
 
+  let finalName = name;
+
   try {
     const db = await getDb();
+
+    if (parentId) {
+      const parent = await db.get('SELECT name FROM products WHERE id = ?', [parentId]);
+      if (parent) {
+        finalName = brand ? `${brand.trim()} ${parent.name.trim()}` : parent.name.trim();
+      }
+    }
+
     await db.run(
       `UPDATE products SET 
         name = ?, barcode = ?, parent_product_id = ?, brand = ?, category = ?,
@@ -385,13 +410,23 @@ app.put('/api/products/:id', async (req, res) => {
         package_type = ?, calories_per_serving = ?, is_parent = ?, is_spice = ?, spice_reorder_percentage = ?
       WHERE id = ?`,
       [
-        name, barcode || null, parentId, brand || null, category || null,
+        finalName, barcode || null, parentId, brand || null, category || null,
         default_unit, servingsPkg, sSize, sUnit, minimum_stock, default_consumption || 1.0,
         useByDays, image_path, package_type || 'package', calPerSrv, isParentVal,
         isSpiceVal, spiceReorderPct,
         req.params.id
       ]
     );
+
+    if (isParentVal) {
+      // Find all child products of this parent and propagate name update
+      const children = await db.all('SELECT id, brand FROM products WHERE parent_product_id = ?', [req.params.id]);
+      for (const child of children) {
+        const derivedName = child.brand ? `${child.brand.trim()} ${name.trim()}` : name.trim();
+        await db.run('UPDATE products SET name = ? WHERE id = ?', [derivedName, child.id]);
+      }
+    }
+
     res.json({ message: 'Product updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });

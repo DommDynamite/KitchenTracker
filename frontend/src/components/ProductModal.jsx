@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Upload, Check, Layers, Package, Database } from 'lucide-react';
+import { X, Upload, Check, Layers, Package, Database, Plus, Edit3 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import ChildProductModal from './ChildProductModal';
 
 const PHYSICAL_UNITS = new Set([
   'g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl_oz', 'cup', 'pint', 'quart', 'gallon', 'tbsp', 'tsp'
@@ -68,6 +69,36 @@ export default function ProductModal({
   const [servingsPerPackageValue, setServingsPerPackageValue] = useState(1);
   const [servingSizeValue, setServingSizeValue] = useState(1);
   const [uploading, setUploading] = useState(false);
+
+  // Child products states
+  const [childProducts, setChildProducts] = useState([]);
+  const [loadingChildren, setLoadingChildren] = useState(false);
+  const [showChildModal, setShowChildModal] = useState(false);
+  const [editingChildProduct, setEditingChildProduct] = useState(null);
+
+  const fetchChildProducts = async () => {
+    if (!editingProduct) return;
+    setLoadingChildren(true);
+    try {
+      const res = await fetch(`/api/products?parent_product_id=${editingProduct.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setChildProducts(data);
+      }
+    } catch (error) {
+      console.error('Error fetching child products:', error);
+    } finally {
+      setLoadingChildren(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && editingProduct && isParent) {
+      fetchChildProducts();
+    } else {
+      setChildProducts([]);
+    }
+  }, [isOpen, editingProduct, isParent]);
 
   const getPluralPackageType = (type) => {
     if (!type) return 'packages';
@@ -759,6 +790,100 @@ export default function ProductModal({
             </>
           )}
 
+          {/* Child Brands & Formats Table (only visible for parent products, in edit mode) */}
+          {isParent && (
+            <div className="space-y-3 p-4 bg-slate-950/20 border border-slate-800 rounded-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                    Child Brands & Packaging Formats
+                  </h3>
+                  <p className="text-[10px] text-slate-500">
+                    Specific products and packaging tracked under this category.
+                  </p>
+                </div>
+                {editingProduct ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingChildProduct(null);
+                      setShowChildModal(true);
+                    }}
+                    className="flex items-center gap-1 py-1.5 px-3 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/50 border border-indigo-500/20 text-white font-bold text-[10px] cursor-pointer transition-all"
+                  >
+                    <Plus className="h-3 w-3" /> Add Format
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-amber-500 italic">
+                    Save parent first to add brands
+                  </span>
+                )}
+              </div>
+
+              {editingProduct && (
+                <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-900/50">
+                  <table className="w-full text-[11px] text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-950/30 text-slate-400 font-bold border-b border-slate-800">
+                        <th className="p-2.5">Brand</th>
+                        <th className="p-2.5">Barcode</th>
+                        <th className="p-2.5">Capacity</th>
+                        {!isSpiceMode && <th className="p-2.5">Calories</th>}
+                        <th className="p-2.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-850">
+                      {childProducts.map(child => (
+                        <tr 
+                          key={child.id}
+                          className="hover:bg-slate-850/40 transition-colors"
+                        >
+                          <td className="p-2.5 font-semibold text-slate-200">
+                            {child.brand || '(No brand)'}
+                          </td>
+                          <td className="p-2.5 text-slate-400 font-mono">
+                            {child.barcode || '—'}
+                          </td>
+                          <td className="p-2.5 text-slate-300">
+                            {child.serving_size} {child.serving_unit} ({child.package_type})
+                          </td>
+                          {!isSpiceMode && (
+                            <td className="p-2.5 text-slate-350">
+                              {child.calories_per_serving !== null && child.calories_per_serving !== undefined
+                                ? `${child.calories_per_serving} kcal`
+                                : '—'
+                              }
+                            </td>
+                          )}
+                          <td className="p-2.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingChildProduct(child);
+                                setShowChildModal(true);
+                              }}
+                              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer transition-colors"
+                              title="Edit Brand Format"
+                            >
+                              <Edit3 className="h-3 w-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {childProducts.length === 0 && (
+                        <tr>
+                          <td colSpan={isSpiceMode ? 4 : 5} className="p-4 text-center text-slate-500 italic">
+                            No child brands registered.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-slate-400">Product Photo</label>
             <div className="flex gap-4 items-center">
@@ -804,6 +929,23 @@ export default function ProductModal({
           </div>
         </form>
       </div>
+
+      {showChildModal && (
+        <ChildProductModal
+          isOpen={showChildModal}
+          onClose={() => setShowChildModal(false)}
+          onSave={fetchChildProducts}
+          parentProduct={editingProduct || {
+            id: null,
+            name: name,
+            category: category,
+            default_unit: defaultUnit,
+            is_spice: isSpiceMode ? 1 : 0,
+            spice_reorder_percentage: spiceReorderPercentage
+          }}
+          editingProduct={editingChildProduct}
+        />
+      )}
     </div>
   );
 }
