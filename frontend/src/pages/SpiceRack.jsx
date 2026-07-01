@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   ChefHat, Plus, Search, Calendar, Trash2, Check, X,
   Layers, AlertTriangle, RotateCw, Sparkles, TrendingDown,
-  Info, ShoppingCart, HelpCircle, Flame
+  Info, ShoppingCart, HelpCircle, Flame, Sliders
 } from 'lucide-react';
 import ProductModal from '../components/ProductModal';
 import ConfirmModal from '../components/ConfirmModal';
