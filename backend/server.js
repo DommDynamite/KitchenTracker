@@ -318,7 +318,7 @@ app.post('/api/products', async (req, res) => {
   const {
     name, barcode, parent_product_id, brand, category,
     default_unit, servings_per_package, serving_size, serving_unit, minimum_stock, default_consumption, use_by_days_after_opening, image_path,
-    package_type, calories_per_serving, is_parent
+    package_type, calories_per_serving, is_parent, is_spice, spice_reorder_percentage
   } = req.body;
 
   if (!name || !default_unit) {
@@ -333,19 +333,22 @@ app.post('/api/products', async (req, res) => {
   const useByDays = isParentVal ? null : (use_by_days_after_opening !== undefined ? use_by_days_after_opening : null);
   const calPerSrv = isParentVal ? null : (calories_per_serving !== undefined ? calories_per_serving : null);
 
+  const isSpiceVal = (is_spice === 1 || is_spice === true) ? 1 : 0;
+  const spiceReorderPct = spice_reorder_percentage !== undefined ? parseFloat(spice_reorder_percentage) : 20.0;
+
   try {
     const db = await getDb();
     const result = await db.run(
       `INSERT INTO products (
         name, barcode, parent_product_id, brand, category,
         default_unit, servings_per_package, serving_size, serving_unit, minimum_stock, default_consumption, use_by_days_after_opening, image_path,
-        package_type, calories_per_serving, is_parent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        package_type, calories_per_serving, is_parent, is_spice, spice_reorder_percentage
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name, barcode || null, parentId, brand || null, category || null,
         default_unit, servingsPkg, sSize, sUnit,
         minimum_stock || 0.0, default_consumption || 1.0, useByDays, image_path || null,
-        package_type || 'package', calPerSrv, isParentVal
+        package_type || 'package', calPerSrv, isParentVal, isSpiceVal, spiceReorderPct
       ]
     );
     res.status(201).json({ id: result.lastID });
@@ -359,7 +362,7 @@ app.put('/api/products/:id', async (req, res) => {
   const {
     name, barcode, parent_product_id, brand, category,
     default_unit, servings_per_package, serving_size, serving_unit, minimum_stock, default_consumption, use_by_days_after_opening, image_path,
-    package_type, calories_per_serving, is_parent
+    package_type, calories_per_serving, is_parent, is_spice, spice_reorder_percentage
   } = req.body;
 
   const isParentVal = (is_parent === 1 || is_parent === true) ? 1 : 0;
@@ -370,18 +373,22 @@ app.put('/api/products/:id', async (req, res) => {
   const useByDays = isParentVal ? null : (use_by_days_after_opening !== undefined ? use_by_days_after_opening : null);
   const calPerSrv = isParentVal ? null : (calories_per_serving !== undefined ? calories_per_serving : null);
 
+  const isSpiceVal = (is_spice === 1 || is_spice === true) ? 1 : 0;
+  const spiceReorderPct = spice_reorder_percentage !== undefined ? parseFloat(spice_reorder_percentage) : 20.0;
+
   try {
     const db = await getDb();
     await db.run(
       `UPDATE products SET 
         name = ?, barcode = ?, parent_product_id = ?, brand = ?, category = ?,
         default_unit = ?, servings_per_package = ?, serving_size = ?, serving_unit = ?, minimum_stock = ?, default_consumption = ?, use_by_days_after_opening = ?, image_path = ?,
-        package_type = ?, calories_per_serving = ?, is_parent = ?
+        package_type = ?, calories_per_serving = ?, is_parent = ?, is_spice = ?, spice_reorder_percentage = ?
       WHERE id = ?`,
       [
         name, barcode || null, parentId, brand || null, category || null,
         default_unit, servingsPkg, sSize, sUnit, minimum_stock, default_consumption || 1.0,
         useByDays, image_path, package_type || 'package', calPerSrv, isParentVal,
+        isSpiceVal, spiceReorderPct,
         req.params.id
       ]
     );
