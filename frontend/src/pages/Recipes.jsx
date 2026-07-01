@@ -70,7 +70,7 @@ export default function Recipes({ settings = {} }) {
       const data = await res.json();
       setRecipes(data);
 
-      const prodRes = await fetch('/api/products');
+      const prodRes = await fetch('/api/products?is_spice=all');
       const prodData = await prodRes.json();
       setProducts(prodData);
     } catch (error) {

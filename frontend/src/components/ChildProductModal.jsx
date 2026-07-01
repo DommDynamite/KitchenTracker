@@ -50,6 +50,8 @@ export default function ChildProductModal({
       showToast('Brand name is required', 'error');
       return;
     }
+    const sSize = parentProduct.is_spice ? (parseFloat(capacityValue) || 1.0) : (parseFloat(servingSizeValue) || 1.0);
+    const sPkg = parentProduct.is_spice ? 1.0 : ((parseFloat(capacityValue) || 1.0) / sSize);
 
     const payload = {
       name: `${brand.trim()} ${parentProduct.name.trim()}`,
@@ -58,8 +60,8 @@ export default function ChildProductModal({
       brand: brand.trim(),
       category: parentProduct.category || 'Pantry',
       default_unit: parentProduct.is_spice ? capacityUnit : (parentProduct.default_unit || 'g'),
-      servings_per_package: 1.0,
-      serving_size: parseFloat(capacityValue) || 1.0,
+      servings_per_package: sPkg,
+      serving_size: sSize,
       serving_unit: capacityUnit,
       minimum_stock: 0,
       default_consumption: 1.0,

@@ -244,6 +244,9 @@ app.get('/api/products', async (req, res) => {
       conditions.push('p1.is_spice = 1');
     } else if (isSpice === 'false') {
       conditions.push('(p1.is_spice = 0 OR p1.is_spice IS NULL)');
+    } else if (isSpice !== 'all') {
+      // Default to non-spice products unless 'all' is explicitly requested
+      conditions.push('(p1.is_spice = 0 OR p1.is_spice IS NULL)');
     }
     
     if (req.query.parent_product_id) {

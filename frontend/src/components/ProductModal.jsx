@@ -80,7 +80,7 @@ export default function ProductModal({
     if (!editingProduct) return;
     setLoadingChildren(true);
     try {
-      const res = await fetch(`/api/products?parent_product_id=${editingProduct.id}`);
+      const res = await fetch(`/api/products?parent_product_id=${editingProduct.id}&is_spice=${editingProduct.is_spice == 1 ? 'true' : 'false'}`);
       if (res.ok) {
         const data = await res.json();
         setChildProducts(data);
