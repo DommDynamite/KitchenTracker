@@ -795,7 +795,7 @@ export default function ProductModal({
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
-                    Child Brands & Packaging Formats
+                    Child Brands
                   </h3>
                   <p className="text-[10px] text-slate-500">
                     Specific products and packaging tracked under this category.
@@ -810,7 +810,7 @@ export default function ProductModal({
                     }}
                     className="flex items-center gap-1 py-1.5 px-3 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/50 border border-indigo-500/20 text-white font-bold text-[10px] cursor-pointer transition-all"
                   >
-                    <Plus className="h-3 w-3" /> Add Format
+                    <Plus className="h-3 w-3" /> Add Brand
                   </button>
                 ) : (
                   <span className="text-[10px] text-amber-500 italic">
