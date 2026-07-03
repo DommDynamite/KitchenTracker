@@ -113,15 +113,18 @@ export default function SpiceRack({ settings }) {
     e.preventDefault();
     const prodId = quickAddBrandId || productId;
     
+    const parsedQty = Math.max(1, parseInt(quickAddQty, 10) || 1);
+    const parsedPercentage = quickAddPercentage === "" ? 100 : Math.max(0, Math.min(100, parseInt(quickAddPercentage, 10) || 0));
+
     try {
       const res = await fetch('/api/spices/quick-add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           product_id: prodId,
-          quantity: quickAddQty,
+          quantity: parsedQty,
           expiration_date: quickAddExpiry || null,
-          percentage: quickAddPercentage
+          percentage: parsedPercentage
         })
       });
       if (res.ok) {
@@ -458,7 +461,7 @@ export default function SpiceRack({ settings }) {
                               type="number" 
                               min="1"
                               value={quickAddQty}
-                              onChange={(e) => setQuickAddQty(parseInt(e.target.value) || 1)}
+                              onChange={(e) => setQuickAddQty(e.target.value)}
                               className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
                               required
                             />
@@ -468,10 +471,10 @@ export default function SpiceRack({ settings }) {
                             <label className="block text-slate-400 font-semibold">{capPkg} Fill %</label>
                             <input 
                               type="number" 
-                              min="1"
+                              min="0"
                               max="100"
                               value={quickAddPercentage}
-                              onChange={(e) => setQuickAddPercentage(Math.max(1, Math.min(100, parseInt(e.target.value) || 100)))}
+                              onChange={(e) => setQuickAddPercentage(e.target.value)}
                               className="w-full p-2 rounded bg-slate-950 border border-slate-850 text-slate-200"
                               required
                             />
