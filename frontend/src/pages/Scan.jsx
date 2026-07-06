@@ -4,7 +4,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { 
   Camera, CameraOff, AlertTriangle, Check, X, 
   RotateCw, Plus, ShoppingBag, Database, ArrowRight,
-  Upload, Trash2
+  Upload, Trash2, Flame, Package
 } from 'lucide-react';
 import ProductModal from '../components/ProductModal';
 import InventoryModal from '../components/InventoryModal';
@@ -138,6 +138,8 @@ export default function Scan({ settings }) {
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
   const [isSavingReceipt, setIsSavingReceipt] = useState(false);
   const [productModalTargetIndex, setProductModalTargetIndex] = useState(null);
+  const [typeSelectIndex, setTypeSelectIndex] = useState(null);
+  const [spiceModeForNew, setSpiceModeForNew] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
   const fetchCategories = async () => {
@@ -732,7 +734,7 @@ export default function Scan({ settings }) {
                           storage_location: matchedProd?.storage_location || ri.storage_location || 'Pantry'
                         } : ri));
                       }}
-                      onRegisterNew={() => setProductModalTargetIndex(idx)}
+                      onRegisterNew={() => setTypeSelectIndex(idx)}
                     />
                   </div>
 
@@ -861,10 +863,87 @@ export default function Scan({ settings }) {
         storeSuggestions={storeSuggestions}
       />
 
+      {/* Product Type Selector Modal */}
+      {typeSelectIndex !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl glass-panel p-6 space-y-5 relative animate-scale-up text-left border border-slate-800">
+            <button 
+              onClick={() => setTypeSelectIndex(null)}
+              className="absolute right-4 top-4 p-1 rounded-full text-slate-400 hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="space-y-1.5">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Database className="h-5 w-5 text-indigo-400" />
+                Select Product Type
+              </h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Choose the correct category mode to register "<span className="text-indigo-300 font-semibold">{receiptItems[typeSelectIndex]?.expanded_description}</span>":
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setSpiceModeForNew(false);
+                  setProductModalTargetIndex(typeSelectIndex);
+                  setTypeSelectIndex(null);
+                }}
+                className="group flex items-start gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-indigo-950/20 hover:border-indigo-500/40 transition-all text-left cursor-pointer"
+              >
+                <div className="p-3 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500/20 transition-all">
+                  <Package className="h-6 w-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-100 group-hover:text-white">Standard Product</h4>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-normal">
+                    For general items like milk, cereal, canned food, meat, or bakery products.
+                  </p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSpiceModeForNew(true);
+                  setProductModalTargetIndex(typeSelectIndex);
+                  setTypeSelectIndex(null);
+                }}
+                className="group flex items-start gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-amber-950/20 hover:border-amber-500/40 transition-all text-left cursor-pointer"
+              >
+                <div className="p-3 rounded-lg bg-amber-500/10 text-amber-400 group-hover:bg-amber-500/20 transition-all">
+                  <Flame className="h-6 w-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-100 group-hover:text-white">Spice / Condiment</h4>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-normal">
+                    For salt, pepper, garlic powder, hot sauce, ketchup, or other seasonings.
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button 
+                type="button" 
+                onClick={() => setTypeSelectIndex(null)}
+                className="px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-350 hover:text-white font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* New Receipt Scan Create Product Modal */}
       <ProductModal
         isOpen={productModalTargetIndex !== null}
         onClose={() => setProductModalTargetIndex(null)}
+        isSpiceMode={spiceModeForNew}
         onSave={async (newProduct) => {
           setProducts(prev => [...prev, newProduct]);
           const idx = productModalTargetIndex;
