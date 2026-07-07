@@ -227,6 +227,7 @@ export default function Inventory() {
       const prodRes = await fetch('/api/products');
       const prodData = await prodRes.json();
       setProducts(prodData);
+      return invData;
     } catch (error) {
       console.error('Error fetching inventory details:', error);
     } finally {
@@ -365,6 +366,54 @@ export default function Inventory() {
       }
     } catch (error) {
       console.error('Error saving manual inventory edit:', error);
+    }
+  };
+
+  const handleConsumePackage = async (packageId) => {
+    if (!selectedPackage) return;
+    
+    const payload = {
+      quantity: parseFloat(editQuantity),
+      remaining_servings: 0,
+      storage_location: editStorageLocation,
+      expiration_date: editExpirationDate || null
+    };
+
+    try {
+      const res = await fetch(`/api/inventory/${packageId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        showToast('Package consumed!', 'success');
+        
+        // Refresh inventory and get updated data
+        const updatedInventory = await fetchInventoryAndProducts();
+        
+        if (updatedInventory && editingGroup) {
+          const updatedGroup = updatedInventory.find(g => g.product_id === editingGroup.product_id);
+          if (updatedGroup) {
+            setEditingGroup(updatedGroup);
+            const updatedPkg = updatedGroup.items.find(item => item.id === packageId);
+            if (updatedPkg) {
+              selectPackageForEditing(updatedPkg);
+            } else {
+              setSelectedPackage(null);
+            }
+          } else {
+            setShowEditModal(false);
+            setEditingGroup(null);
+            setSelectedPackage(null);
+          }
+        }
+      } else {
+        const err = await res.json();
+        showToast(`Error consuming package: ${err.error}`, 'error');
+      }
+    } catch (error) {
+      console.error('Error consuming package:', error);
+      showToast('Network error consuming package', 'error');
     }
   };
 
@@ -1274,15 +1323,24 @@ export default function Inventory() {
 
                 {/* Save/Remove actions */}
                 <div className="flex justify-between items-center pt-4 border-t border-slate-800">
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      handleDeleteItem(selectedPackage.id);
-                    }}
-                    className="px-3.5 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25 hover:bg-rose-500/20 text-rose-400 font-bold text-xs"
-                  >
-                    Remove Package
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        handleDeleteItem(selectedPackage.id);
+                      }}
+                      className="px-3.5 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25 hover:bg-rose-500/20 text-rose-400 font-bold text-xs cursor-pointer transition-colors"
+                    >
+                      Remove Package
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => handleConsumePackage(selectedPackage.id)}
+                      className="px-3.5 py-2 rounded-lg bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20 text-amber-400 font-bold text-xs cursor-pointer transition-colors"
+                    >
+                      Consume Package
+                    </button>
+                  </div>
                   <div className="flex gap-2">
                     <button 
                       type="button"
