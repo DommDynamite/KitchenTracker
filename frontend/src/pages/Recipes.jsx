@@ -472,7 +472,8 @@ export default function Recipes({ settings = {} }) {
       amount: ing.amount,
       originalAmount: ing.amount,
       unit: ing.unit,
-      prod_unit: ing.prod_unit
+      prod_unit: ing.prod_unit,
+      isSubstituting: false
     }));
     setAdjustedIngredients(cloned);
     setShowAdjustModal(true);
@@ -1871,7 +1872,66 @@ export default function Recipes({ settings = {} }) {
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Ingredients</label>
               {adjustedIngredients.map((ing, idx) => (
                 <div key={idx} className="flex flex-col gap-1.5 p-3 rounded-xl border border-slate-850 bg-slate-900/40">
-                  <span className="text-sm font-semibold text-white truncate">{ing.product_name}</span>
+                  <div className="flex justify-between items-center gap-2">
+                    {ing.isSubstituting ? (
+                      <div className="flex-1 flex gap-2 items-center">
+                        <select
+                          value={ing.product_id || ''}
+                          onChange={(e) => {
+                            const newProdId = Number(e.target.value);
+                            const selectedProd = products.find(p => p.id === newProdId);
+                            if (selectedProd) {
+                              setAdjustedIngredients(prev => prev.map((item, i) => 
+                                i === idx 
+                                  ? { 
+                                      ...item, 
+                                      product_id: newProdId, 
+                                      product_name: `${selectedProd.brand ? selectedProd.brand + ' ' : ''}${selectedProd.name}`,
+                                      isSubstituting: false 
+                                    } 
+                                  : item
+                              ));
+                            }
+                          }}
+                          className="flex-1 p-1.5 rounded-lg glass-input bg-slate-900 text-slate-200 text-xs font-semibold cursor-pointer"
+                        >
+                          <option value="">-- Select Substitute Product --</option>
+                          {products.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} {p.brand ? `(${p.brand})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdjustedIngredients(prev => prev.map((item, i) => 
+                              i === idx ? { ...item, isSubstituting: false } : item
+                            ));
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                          title="Cancel Substitution"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="text-xs font-semibold text-white truncate flex-1">{ing.product_name}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdjustedIngredients(prev => prev.map((item, i) => 
+                              i === idx ? { ...item, isSubstituting: true } : item
+                            ));
+                          }}
+                          className="flex items-center gap-1 py-1 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700/60 text-slate-300 hover:text-white font-bold text-[10px] cursor-pointer transition-all"
+                        >
+                          Substitute
+                        </button>
+                      </>
+                    )}
+                  </div>
                   <div className="flex gap-2 items-center">
                     <input
                       type="number"

@@ -511,7 +511,7 @@ export default function SpiceRack({ settings }) {
         <ProductModal 
           isOpen={showProductModal}
           onClose={() => setShowProductModal(false)}
-          onSave={fetchSpices}
+          onSave={() => fetchSpices()}
           editingProduct={editingProduct}
           isSpiceMode={true}
           parentProducts={parentProducts}

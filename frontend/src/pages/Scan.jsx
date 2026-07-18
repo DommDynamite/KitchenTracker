@@ -18,6 +18,8 @@ function SearchableProductDropdown({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [showProducts, setShowProducts] = useState(true);
+  const [showSpices, setShowSpices] = useState(true);
   const wrapperRef = useRef(null);
 
   useEffect(() => {
@@ -31,6 +33,10 @@ function SearchableProductDropdown({
   }, []);
 
   const filteredProducts = products.filter(p => {
+    const isSpice = p.is_spice === 1;
+    if (isSpice && !showSpices) return false;
+    if (!isSpice && !showProducts) return false;
+
     const term = search.toLowerCase();
     const nameMatch = p.name?.toLowerCase().includes(term) || false;
     const brandMatch = p.brand?.toLowerCase().includes(term) || false;
@@ -58,7 +64,7 @@ function SearchableProductDropdown({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 mt-1 rounded-xl border border-slate-800 bg-slate-950/95 backdrop-blur-md p-2 shadow-2xl z-50 space-y-1 animate-scale-up max-h-60 flex flex-col">
+        <div className="absolute left-0 right-0 mt-1 rounded-xl border border-slate-800 bg-slate-950/95 backdrop-blur-md p-2 shadow-2xl z-50 space-y-1 animate-scale-up max-h-64 flex flex-col">
           <input
             type="text"
             placeholder="Search products..."
@@ -67,7 +73,31 @@ function SearchableProductDropdown({
             className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-850 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
             autoFocus
           />
-          <div className="overflow-y-auto max-h-40 space-y-0.5 mt-1 flex-1">
+          <div className="flex gap-1.5 my-1.5 px-1">
+            <button
+              type="button"
+              onClick={() => setShowProducts(!showProducts)}
+              className={`flex-1 py-1 rounded-md text-[10px] font-bold border transition-colors ${
+                showProducts 
+                  ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300' 
+                  : 'bg-slate-905 border-slate-850 text-slate-500 hover:text-slate-400'
+              }`}
+            >
+              Products
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSpices(!showSpices)}
+              className={`flex-1 py-1 rounded-md text-[10px] font-bold border transition-colors ${
+                showSpices 
+                  ? 'bg-amber-600/20 border-amber-500/50 text-amber-300' 
+                  : 'bg-slate-905 border-slate-850 text-slate-500 hover:text-slate-400'
+              }`}
+            >
+              Spices
+            </button>
+          </div>
+          <div className="overflow-y-auto max-h-36 space-y-0.5 mt-0.5 flex-1">
             {filteredProducts.length === 0 ? (
               <div className="px-3 py-2 text-xs text-slate-500 text-center">No products found</div>
             ) : (
@@ -85,6 +115,7 @@ function SearchableProductDropdown({
                       : 'text-slate-300 hover:bg-slate-900 hover:text-white'
                   }`}
                 >
+                  {p.is_spice === 1 && <span className="text-amber-500 text-[10px] mr-1 font-bold">🌶️</span>}
                   {p.brand ? `[${p.brand}] ` : ''}{p.name}
                 </button>
               ))
@@ -168,7 +199,7 @@ export default function Scan({ settings }) {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch('/api/products');
+      const res = await fetch('/api/products?is_spice=all');
       if (res.ok) {
         const data = await res.json();
         setProducts(data);
@@ -840,10 +871,12 @@ export default function Scan({ settings }) {
       <ProductModal
         isOpen={step === 'create_product'}
         onClose={handleCancel}
-        onSave={async (newProduct) => {
+        onSave={async (newProduct, shouldClose = true) => {
           setProducts(prev => [...prev, newProduct]);
           setResolvedProduct(newProduct);
-          setStep('add_inventory');
+          if (shouldClose) {
+            setStep('add_inventory');
+          }
           fetchProducts();
         }}
         prefilledBarcode={scannedBarcode}
@@ -944,7 +977,7 @@ export default function Scan({ settings }) {
         isOpen={productModalTargetIndex !== null}
         onClose={() => setProductModalTargetIndex(null)}
         isSpiceMode={spiceModeForNew}
-        onSave={async (newProduct) => {
+        onSave={async (newProduct, shouldClose = true) => {
           setProducts(prev => [...prev, newProduct]);
           const idx = productModalTargetIndex;
           if (idx !== null) {
@@ -954,7 +987,9 @@ export default function Scan({ settings }) {
               storage_location: newProduct.storage_location || ri.storage_location || 'Pantry'
             } : ri));
           }
-          setProductModalTargetIndex(null);
+          if (shouldClose) {
+            setProductModalTargetIndex(null);
+          }
           fetchProducts();
         }}
         prefilledName={productModalTargetIndex !== null ? receiptItems[productModalTargetIndex]?.expanded_description : ''}

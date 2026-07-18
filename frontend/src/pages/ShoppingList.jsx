@@ -272,15 +272,17 @@ export default function ShoppingList() {
     setCheckoutItems(updated);
   };
 
-  const handleRegisteredProductAtCheckout = (newProduct) => {
+  const handleRegisteredProductAtCheckout = (newProduct, shouldClose = true) => {
     setProducts(prev => [...prev, newProduct]);
     if (registeringForItemIdx !== null) {
       handleCheckoutProductChange(registeringForItemIdx, newProduct.id);
     }
-    setRegisteringForItemIdx(null);
-    setPrefilledParentIdForRegister(null);
-    setPrefilledCategoryForRegister('Pantry');
-    setShowRegisterModal(false);
+    if (shouldClose) {
+      setRegisteringForItemIdx(null);
+      setPrefilledParentIdForRegister(null);
+      setPrefilledCategoryForRegister('Pantry');
+      setShowRegisterModal(false);
+    }
   };
 
   const handleGlobalStorageChange = (val) => {

@@ -41,9 +41,14 @@ export default function ProductModal({
   isSpiceMode = false
 }) {
   const { showToast } = useToast();
+  const [localEditingProduct, setLocalEditingProduct] = useState(editingProduct);
   const [name, setName] = useState('');
   const [barcode, setBarcode] = useState('');
-  const parentProductId = editingProduct ? (editingProduct.parent_product_id || null) : null;
+  const parentProductId = localEditingProduct ? (localEditingProduct.parent_product_id || null) : null;
+
+  useEffect(() => {
+    setLocalEditingProduct(editingProduct);
+  }, [isOpen, editingProduct]);
   const [isParent, setIsParent] = useState(false);
   const [brand, setBrand] = useState('');
   const [category, setCategory] = useState('Pantry');
@@ -77,10 +82,11 @@ export default function ProductModal({
   const [editingChildProduct, setEditingChildProduct] = useState(null);
 
   const fetchChildProducts = async () => {
-    if (!editingProduct) return;
+    const activeProduct = localEditingProduct || editingProduct;
+    if (!activeProduct) return;
     setLoadingChildren(true);
     try {
-      const res = await fetch(`/api/products?parent_product_id=${editingProduct.id}&is_spice=${editingProduct.is_spice == 1 ? 'true' : 'false'}`);
+      const res = await fetch(`/api/products?parent_product_id=${activeProduct.id}&is_spice=${activeProduct.is_spice == 1 ? 'true' : 'false'}`);
       if (res.ok) {
         const data = await res.json();
         setChildProducts(data);
@@ -93,12 +99,13 @@ export default function ProductModal({
   };
 
   useEffect(() => {
-    if (isOpen && editingProduct && isParent) {
+    const activeProduct = localEditingProduct || editingProduct;
+    if (isOpen && activeProduct && isParent) {
       fetchChildProducts();
     } else {
       setChildProducts([]);
     }
-  }, [isOpen, editingProduct, isParent]);
+  }, [isOpen, localEditingProduct, editingProduct, isParent]);
 
   const getPluralPackageType = (type) => {
     if (!type) return 'packages';
@@ -143,32 +150,32 @@ export default function ProductModal({
 
   useEffect(() => {
     if (isOpen) {
-      if (editingProduct) {
-        setName(editingProduct.name || '');
-        setBarcode(editingProduct.barcode || '');
-        setIsParent(editingProduct.is_parent == 1);
-        setBrand(editingProduct.brand || '');
-        setCategory(editingProduct.category || (isSpiceMode ? 'Spices' : 'Pantry'));
-        setDefaultUnit(editingProduct.default_unit || (isSpiceMode ? 'g' : 'pieces'));
-        setServingsPerPackage(editingProduct.servings_per_package || 1);
-        setServingSize(editingProduct.serving_size || 1);
-        setServingUnit(editingProduct.serving_unit || (isSpiceMode ? 'g' : 'pieces'));
-        setMinimumStock(editingProduct.minimum_stock || 0);
-        setDefaultConsumption(editingProduct.default_consumption || 1.0);
-        setUseByDaysAfterOpening(editingProduct.use_by_days_after_opening || '');
-        setPackageType(editingProduct.package_type || (isSpiceMode ? 'jar' : 'package'));
-        setImagePath(editingProduct.image_path || '');
-        setSpiceReorderPercentage(editingProduct.spice_reorder_percentage !== undefined && editingProduct.spice_reorder_percentage !== null ? editingProduct.spice_reorder_percentage : 20);
+      if (localEditingProduct) {
+        setName(localEditingProduct.name || '');
+        setBarcode(localEditingProduct.barcode || '');
+        setIsParent(localEditingProduct.is_parent == 1);
+        setBrand(localEditingProduct.brand || '');
+        setCategory(localEditingProduct.category || (isSpiceMode ? 'Spices' : 'Pantry'));
+        setDefaultUnit(localEditingProduct.default_unit || (isSpiceMode ? 'g' : 'pieces'));
+        setServingsPerPackage(localEditingProduct.servings_per_package || 1);
+        setServingSize(localEditingProduct.serving_size || 1);
+        setServingUnit(localEditingProduct.serving_unit || (isSpiceMode ? 'g' : 'pieces'));
+        setMinimumStock(localEditingProduct.minimum_stock || 0);
+        setDefaultConsumption(localEditingProduct.default_consumption || 1.0);
+        setUseByDaysAfterOpening(localEditingProduct.use_by_days_after_opening || '');
+        setPackageType(localEditingProduct.package_type || (isSpiceMode ? 'jar' : 'package'));
+        setImagePath(localEditingProduct.image_path || '');
+        setSpiceReorderPercentage(localEditingProduct.spice_reorder_percentage !== undefined && localEditingProduct.spice_reorder_percentage !== null ? localEditingProduct.spice_reorder_percentage : 20);
 
-        const sUnit = editingProduct.serving_unit || editingProduct.default_unit || (isSpiceMode ? 'g' : 'pieces');
-        const sSize = editingProduct.serving_size || 1.0;
-        const sPkg = editingProduct.servings_per_package || 1.0;
+        const sUnit = localEditingProduct.serving_unit || localEditingProduct.default_unit || (isSpiceMode ? 'g' : 'pieces');
+        const sSize = localEditingProduct.serving_size || 1.0;
+        const sPkg = localEditingProduct.servings_per_package || 1.0;
         
         const capVal = Math.round((sPkg * sSize) * 1000) / 1000;
         setCapacityValue(capVal);
         setCapacityUnit(sUnit);
 
-        const cal = editingProduct.calories_per_serving !== null && editingProduct.calories_per_serving !== undefined ? editingProduct.calories_per_serving : '';
+        const cal = localEditingProduct.calories_per_serving !== null && localEditingProduct.calories_per_serving !== undefined ? localEditingProduct.calories_per_serving : '';
         setCaloriesValue(cal);
         
         if (sSize === 1.0) {
@@ -227,7 +234,7 @@ export default function ProductModal({
         setSpiceReorderPercentage(20);
       }
     }
-  }, [isOpen, editingProduct]);
+  }, [isOpen, localEditingProduct]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -253,8 +260,7 @@ export default function ProductModal({
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSave = async (shouldClose) => {
     if (!name || !defaultUnit) {
       showToast('Product Name and Default Unit are required.', 'warning');
       return;
@@ -307,6 +313,8 @@ export default function ProductModal({
       }
     }
 
+    const activeProduct = localEditingProduct || editingProduct;
+
     const payload = {
       name,
       barcode: barcode || null,
@@ -324,13 +332,13 @@ export default function ProductModal({
       package_type: packageType || (isSpiceMode ? 'jar' : 'package'),
       calories_per_serving: isSpiceMode ? null : calPerSrv,
       is_parent: isParent ? 1 : 0,
-      is_spice: isSpiceMode ? 1 : (editingProduct ? (editingProduct.is_spice || 0) : 0),
-      spice_reorder_percentage: isSpiceMode ? (parseFloat(spiceReorderPercentage) || 20.0) : (editingProduct ? (editingProduct.spice_reorder_percentage || 20.0) : 20.0)
+      is_spice: isSpiceMode ? 1 : (activeProduct ? (activeProduct.is_spice || 0) : 0),
+      spice_reorder_percentage: isSpiceMode ? (parseFloat(spiceReorderPercentage) || 20.0) : (activeProduct ? (activeProduct.spice_reorder_percentage || 20.0) : 20.0)
     };
 
     try {
-      const url = editingProduct ? `/api/products/${editingProduct.id}` : '/api/products';
-      const method = editingProduct ? 'PUT' : 'POST';
+      const url = activeProduct ? `/api/products/${activeProduct.id}` : '/api/products';
+      const method = activeProduct ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
         method,
@@ -339,9 +347,14 @@ export default function ProductModal({
       });
       const data = await res.json();
       if (res.ok) {
-        onSave({ id: editingProduct ? editingProduct.id : data.id, ...payload });
-        onClose();
-        showToast('Product saved successfully!', 'success');
+        const savedProduct = { id: activeProduct ? activeProduct.id : data.id, ...payload };
+        onSave(savedProduct, shouldClose);
+        if (shouldClose) {
+          onClose();
+        } else {
+          setLocalEditingProduct(savedProduct);
+          showToast('Product saved successfully!', 'success');
+        }
       } else {
         showToast(data.error || 'Failed to save product', 'error');
       }
@@ -349,6 +362,11 @@ export default function ProductModal({
       console.error('Error saving product:', error);
       showToast('Network error saving product', 'error');
     }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    handleSave(true);
   };
 
   if (!isOpen) return null;
@@ -365,7 +383,7 @@ export default function ProductModal({
 
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           <Database className="h-5 w-5 text-indigo-400" />
-          {editingProduct ? 'Edit Product Details' : 'Register New Product'}
+          {localEditingProduct ? 'Edit Product Details' : 'Register New Product'}
         </h2>
 
         <form 
@@ -383,30 +401,30 @@ export default function ProductModal({
             <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-950/60 border border-slate-850">
               <button
                 type="button"
-                disabled={!!editingProduct}
+                disabled={!!localEditingProduct}
                 onClick={() => setIsParent(false)}
                 className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${
                   !isParent 
                     ? 'bg-indigo-600 text-white shadow-md font-extrabold' 
                     : 'text-slate-400 hover:text-white hover:bg-slate-900/30'
-                } ${editingProduct ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                } ${localEditingProduct ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
               >
                 Standalone Product
               </button>
               <button
                 type="button"
-                disabled={!!editingProduct}
+                disabled={!!localEditingProduct}
                 onClick={() => setIsParent(true)}
                 className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${
                   isParent 
                     ? 'bg-indigo-600 text-white shadow-md font-extrabold' 
                     : 'text-slate-400 hover:text-white hover:bg-slate-900/30'
-                } ${editingProduct ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                } ${localEditingProduct ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
               >
                 Parent Category Product
               </button>
             </div>
-            {editingProduct && (
+            {localEditingProduct && (
               <span className="text-[9px] text-slate-500 italic block mt-0.5">
                 Product mode cannot be changed once created.
               </span>
@@ -801,7 +819,7 @@ export default function ProductModal({
                     Specific products and packaging tracked under this category.
                   </p>
                 </div>
-                {editingProduct ? (
+                {localEditingProduct ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -819,7 +837,7 @@ export default function ProductModal({
                 )}
               </div>
 
-              {editingProduct && (
+              {localEditingProduct && (
                 <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-900/50">
                   <table className="w-full text-[11px] text-left border-collapse">
                     <thead>
@@ -932,12 +950,31 @@ export default function ProductModal({
             >
               Cancel
             </button>
-            <button 
-              type="submit"
-              className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white text-xs font-semibold shadow-lg hover:opacity-90 transition-opacity"
-            >
-              <Check className="h-4 w-4" /> Save Product
-            </button>
+            {isParent ? (
+              <>
+                <button 
+                  type="button"
+                  onClick={() => handleSave(false)}
+                  className="flex items-center gap-1 px-4 py-2 rounded-lg bg-slate-800 border border-slate-750 text-slate-200 text-xs font-semibold hover:bg-slate-700 hover:text-white transition-all shadow-md cursor-pointer"
+                >
+                  Save
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => handleSave(true)}
+                  className="flex items-center gap-1 px-4 py-2 rounded-lg bg-gradient-indigo text-white text-xs font-semibold shadow-lg hover:opacity-90 transition-all active:scale-95 cursor-pointer"
+                >
+                  <Check className="h-4 w-4" /> Save & Close
+                </button>
+              </>
+            ) : (
+              <button 
+                type="submit"
+                className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white text-xs font-semibold shadow-lg hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                <Check className="h-4 w-4" /> Save Product
+              </button>
+            )}
           </div>
         </form>
       </div>
@@ -946,8 +983,11 @@ export default function ProductModal({
         <ChildProductModal
           isOpen={showChildModal}
           onClose={() => setShowChildModal(false)}
-          onSave={fetchChildProducts}
-          parentProduct={editingProduct || {
+          onSave={(newChildProduct) => {
+            fetchChildProducts();
+            onSave(newChildProduct, false);
+          }}
+          parentProduct={localEditingProduct || {
             id: null,
             name: name,
             category: category,
