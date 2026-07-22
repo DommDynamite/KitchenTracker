@@ -387,33 +387,13 @@ export default function Inventory() {
       });
       if (res.ok) {
         showToast('Package consumed!', 'success');
-        
-        // Refresh inventory and get updated data
-        const updatedInventory = await fetchInventoryAndProducts();
-        
-        if (updatedInventory && editingGroup) {
-          const updatedGroup = updatedInventory.find(g => g.product_id === editingGroup.product_id);
-          if (updatedGroup) {
-            setEditingGroup(updatedGroup);
-            const updatedPkg = updatedGroup.items.find(item => item.id === packageId);
-            if (updatedPkg) {
-              selectPackageForEditing(updatedPkg);
-            } else {
-              setSelectedPackage(null);
-            }
-          } else {
-            setShowEditModal(false);
-            setEditingGroup(null);
-            setSelectedPackage(null);
-          }
-        }
+        fetchInventoryAndProducts();
       } else {
         const err = await res.json();
         showToast(`Error consuming package: ${err.error}`, 'error');
       }
     } catch (error) {
       console.error('Error consuming package:', error);
-      showToast('Network error consuming package', 'error');
     }
   };
 
