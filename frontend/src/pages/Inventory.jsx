@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Plus, Search, Sliders, Calendar, Trash2, Check, X,
   ShoppingBag, Archive, HelpCircle, ThermometerSun, AlertTriangle, RotateCw,
@@ -109,6 +110,9 @@ function formatStockCompact(remainingServings, originalServings, productUnit, se
 
 export default function Inventory() {
   const { showToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const modalQuery = searchParams.get('modal');
+  const productIdQuery = searchParams.get('productId');
   const [inventory, setInventory] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -255,7 +259,8 @@ export default function Inventory() {
   }, []);
 
   const handleOpenAdd = () => {
-    setShowModal(true);
+    setPreselectedProductId(null);
+    setSearchParams({ modal: 'add' });
   };
 
   const handleInventorySaved = () => {
@@ -299,9 +304,7 @@ export default function Inventory() {
             method: 'DELETE'
           });
           if (res.ok) {
-            setShowEditModal(false);
-            setEditingGroup(null);
-            setSelectedPackage(null);
+            setSearchParams({});
             fetchInventoryAndProducts();
           }
         } catch (error) {
@@ -312,11 +315,7 @@ export default function Inventory() {
   };
 
   const handleOpenEdit = (group) => {
-    setEditingGroup(group);
-    // Auto-select the first package
-    const firstItem = group.items[0] || null;
-    selectPackageForEditing(firstItem);
-    setShowEditModal(true);
+    setSearchParams({ modal: 'edit', productId: group.product_id });
   };
 
   const selectPackageForEditing = (pkg) => {
@@ -356,9 +355,7 @@ export default function Inventory() {
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        setShowEditModal(false);
-        setEditingGroup(null);
-        setSelectedPackage(null);
+        setSearchParams({});
         fetchInventoryAndProducts();
       } else {
         const err = await res.json();
@@ -572,36 +569,70 @@ export default function Inventory() {
     }
   });
 
-  // Keep editingGroup updated when inventory changes (e.g., after adding/deleting packages)
+  const syncSelectedPackage = (freshPkg) => {
+    if (!freshPkg) {
+      if (selectedPackage !== null) {
+        selectPackageForEditing(null);
+      }
+      return;
+    }
+    if (!selectedPackage || 
+        selectedPackage.id !== freshPkg.id ||
+        selectedPackage.quantity !== freshPkg.quantity ||
+        selectedPackage.remaining_servings !== freshPkg.remaining_servings ||
+        selectedPackage.storage_location !== freshPkg.storage_location ||
+        selectedPackage.expiration_date !== freshPkg.expiration_date) {
+      selectPackageForEditing(freshPkg);
+    }
+  };
+
+  // Keep modals and selected package states synchronized with URL query params and inventory changes
   useEffect(() => {
-    if (showEditModal && editingGroup) {
-      const freshGroup = groupedInventory.find(g => g.product_id === editingGroup.product_id);
-      if (freshGroup) {
-        setEditingGroup(freshGroup);
-        if (selectedPackage) {
-          const freshPkg = freshGroup.items.find(item => item.id === selectedPackage.id);
+    if (modalQuery === 'add') {
+      if (!showModal) setShowModal(true);
+      if (showEditModal) setShowEditModal(false);
+      if (editingGroup) setEditingGroup(null);
+      if (selectedPackage) selectPackageForEditing(null);
+    } else if (modalQuery === 'edit' && productIdQuery) {
+      const prodId = Number(productIdQuery);
+      const matched = groupedInventory.find(g => g.product_id === prodId);
+      if (matched) {
+        if (!editingGroup || editingGroup.product_id !== matched.product_id) {
+          setEditingGroup(matched);
+        }
+        if (!showEditModal) {
+          setShowEditModal(true);
+        }
+        if (showModal) {
+          setShowModal(false);
+        }
+        
+        // Sync selected package
+        if (selectedPackage && (selectedPackage.parent_product_id || selectedPackage.product_id) === prodId) {
+          const freshPkg = matched.items.find(item => item.id === selectedPackage.id);
           if (freshPkg) {
-            setSelectedPackage(freshPkg);
+            syncSelectedPackage(freshPkg);
           } else {
-            // Selected package was deleted, select first item
-            const firstItem = freshGroup.items[0] || null;
-            setSelectedPackage(firstItem);
-            if (firstItem) {
-              setEditQuantity(firstItem.quantity);
-              setEditRemainingServings(firstItem.remaining_servings);
-              setEditStorageLocation(firstItem.storage_location || 'Pantry');
-              setEditExpirationDate(firstItem.expiration_date || '');
-            }
+            // Selected package was consumed/deleted, select first item
+            const firstItem = matched.items[0] || null;
+            syncSelectedPackage(firstItem);
           }
+        } else {
+          // No package selected yet or selected package is from another group
+          const firstItem = matched.items[0] || null;
+          syncSelectedPackage(firstItem);
         }
       } else {
-        // Group is gone
-        setShowEditModal(false);
-        setEditingGroup(null);
-        setSelectedPackage(null);
+        // Group is gone (all items consumed/deleted)
+        setSearchParams({});
       }
+    } else {
+      if (showModal) setShowModal(false);
+      if (showEditModal) setShowEditModal(false);
+      if (editingGroup) setEditingGroup(null);
+      if (selectedPackage) selectPackageForEditing(null);
     }
-  }, [inventory]);
+  }, [modalQuery, productIdQuery, groupedInventory, selectedPackage, editingGroup]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1074,7 +1105,7 @@ export default function Inventory() {
       <InventoryModal
         isOpen={showModal}
         onClose={() => {
-          setShowModal(false);
+          setSearchParams({});
           setPreselectedProductId(null);
         }}
         onSave={handleInventorySaved}
@@ -1091,9 +1122,7 @@ export default function Inventory() {
           <div className="w-full max-w-2xl rounded-2xl glass-panel p-6 space-y-6 my-8 relative animate-scale-up">
             <button 
               onClick={() => {
-                setShowEditModal(false);
-                setEditingGroup(null);
-                setSelectedPackage(null);
+                setSearchParams({});
               }}
               className="absolute right-4 top-4 p-1 rounded-full text-slate-400 hover:text-white"
             >
@@ -1119,7 +1148,7 @@ export default function Inventory() {
                   type="button"
                   onClick={() => {
                     setPreselectedProductId(editingGroup.product_id);
-                    setShowModal(true);
+                    setSearchParams({ modal: 'add' });
                   }}
                   className="flex items-center gap-1 py-1.5 px-3 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 font-bold text-[10px] transition-colors border border-indigo-500/20 cursor-pointer"
                 >
@@ -1325,9 +1354,7 @@ export default function Inventory() {
                     <button 
                       type="button"
                       onClick={() => {
-                        setShowEditModal(false);
-                        setEditingGroup(null);
-                        setSelectedPackage(null);
+                        setSearchParams({});
                       }}
                       className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold"
                     >
