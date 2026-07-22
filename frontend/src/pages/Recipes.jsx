@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Plus, Search, ChevronRight, ChevronLeft, Check, X, 
   RotateCw, BookOpen, Clock, Heart, Users, Trash2, Upload, PlusCircle, MinusCircle, Layers,
@@ -8,6 +9,8 @@ import ConfirmModal from '../components/ConfirmModal';
 import { useToast } from '../context/ToastContext';
 
 export default function Recipes({ settings = {} }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const recipeIdQuery = searchParams.get('recipeId');
   const [recipes, setRecipes] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -253,24 +256,48 @@ export default function Recipes({ settings = {} }) {
     try {
       const res = await fetch(`/api/recipes/${id}`);
       const data = await res.json();
-      setActiveRecipeDetails(data);
-      setActiveStepIndex(0);
-      setCheckedEquipment({});
+      if (res.ok) {
+        setActiveRecipeDetails(data);
+        setActiveRecipe(data.recipe);
+        setActiveStepIndex(0);
+        setCheckedEquipment({});
+      } else {
+        showToast(data.error || 'Failed to fetch recipe details', 'error');
+        setSearchParams({});
+      }
     } catch (error) {
       console.error('Error fetching recipe details:', error);
+      showToast('Network error loading recipe', 'error');
+      setSearchParams({});
     }
   };
 
   const handleOpenRecipe = (recipe) => {
-    setActiveRecipe(recipe);
-    fetchRecipeDetails(recipe.id);
+    setSearchParams({ recipeId: recipe.id });
   };
 
   const handleCloseRecipe = () => {
-    setActiveRecipe(null);
-    setActiveRecipeDetails(null);
-    fetchRecipesAndProducts(); // refresh inventory stats in the list
+    setSearchParams({});
   };
+
+  useEffect(() => {
+    if (recipeIdQuery) {
+      const id = Number(recipeIdQuery);
+      if (!activeRecipe || activeRecipe.id !== id) {
+        const matched = recipes.find(r => r.id === id);
+        if (matched) {
+          setActiveRecipe(matched);
+        }
+        fetchRecipeDetails(id);
+      }
+    } else {
+      if (activeRecipe) {
+        setActiveRecipe(null);
+        setActiveRecipeDetails(null);
+        fetchRecipesAndProducts();
+      }
+    }
+  }, [recipeIdQuery, recipes]);
 
   const extractRecipeJson = (text) => {
     if (!text) return null;
