@@ -147,6 +147,8 @@ export default function Inventory() {
   const [editRemainingServings, setEditRemainingServings] = useState(1);
   const [editStorageLocation, setEditStorageLocation] = useState('Pantry');
   const [editExpirationDate, setEditExpirationDate] = useState('');
+  const [editUnitMode, setEditUnitMode] = useState('servings'); // 'servings' | 'physical'
+  const [editPhysicalAmount, setEditPhysicalAmount] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const [storeSuggestions, setStoreSuggestions] = useState([]);
@@ -326,8 +328,9 @@ export default function Inventory() {
     setSearchParams({ modal: 'edit', productId: group.product_id });
   };
 
-  const selectPackageForEditing = (pkg) => {
+  const selectPackageForEditing = (pkg, currentGroup = editingGroup) => {
     setSelectedPackage(pkg);
+    const group = currentGroup || (pkg ? groupedInventory.find(g => g.product_id === (pkg.parent_product_id || pkg.product_id)) : null);
     if (pkg) {
       setEditQuantity(pkg.quantity);
       setEditRemainingServings(pkg.remaining_servings);
@@ -335,6 +338,13 @@ export default function Inventory() {
       const defaultLoc = hasPantry ? hasPantry.name : (locations[0] ? locations[0].name : 'Pantry');
       setEditStorageLocation(pkg.storage_location || defaultLoc);
       setEditExpirationDate(pkg.expiration_date || '');
+      
+      if (group && group.serving_size > 0) {
+        setEditPhysicalAmount((pkg.remaining_servings * group.serving_size).toFixed(1));
+      } else {
+        setEditPhysicalAmount('');
+      }
+      setEditUnitMode('servings');
     } else {
       setEditQuantity(1);
       setEditRemainingServings(0);
@@ -342,6 +352,8 @@ export default function Inventory() {
       const defaultLoc = hasPantry ? hasPantry.name : (locations[0] ? locations[0].name : 'Pantry');
       setEditStorageLocation(defaultLoc);
       setEditExpirationDate('');
+      setEditPhysicalAmount('');
+      setEditUnitMode('servings');
     }
   };
 
@@ -605,10 +617,10 @@ export default function Inventory() {
     });
   }
 
-  const syncSelectedPackage = (freshPkg) => {
+  const syncSelectedPackage = (freshPkg, group = editingGroup) => {
     if (!freshPkg) {
       if (selectedPackage !== null) {
-        selectPackageForEditing(null);
+        selectPackageForEditing(null, group);
       }
       return;
     }
@@ -618,7 +630,7 @@ export default function Inventory() {
         selectedPackage.remaining_servings !== freshPkg.remaining_servings ||
         selectedPackage.storage_location !== freshPkg.storage_location ||
         selectedPackage.expiration_date !== freshPkg.expiration_date) {
-      selectPackageForEditing(freshPkg);
+      selectPackageForEditing(freshPkg, group);
     }
   };
 
@@ -628,7 +640,7 @@ export default function Inventory() {
       if (!showModal) setShowModal(true);
       if (showEditModal) setShowEditModal(false);
       if (editingGroup) setEditingGroup(null);
-      if (selectedPackage) selectPackageForEditing(null);
+      if (selectedPackage) selectPackageForEditing(null, null);
     } else if (modalQuery === 'edit' && productIdQuery) {
       const prodId = Number(productIdQuery);
       const matched = groupedInventory.find(g => g.product_id === prodId);
@@ -647,16 +659,16 @@ export default function Inventory() {
         if (selectedPackage && (selectedPackage.parent_product_id || selectedPackage.product_id) === prodId) {
           const freshPkg = matched.items.find(item => item.id === selectedPackage.id);
           if (freshPkg) {
-            syncSelectedPackage(freshPkg);
+            syncSelectedPackage(freshPkg, matched);
           } else {
             // Selected package was consumed/deleted, select first item
             const firstItem = matched.items[0] || null;
-            syncSelectedPackage(firstItem);
+            syncSelectedPackage(firstItem, matched);
           }
         } else {
           // No package selected yet or selected package is from another group
           const firstItem = matched.items[0] || null;
-          syncSelectedPackage(firstItem);
+          syncSelectedPackage(firstItem, matched);
         }
       } else {
         // Group is gone (all items consumed/deleted)
@@ -666,7 +678,7 @@ export default function Inventory() {
       if (showModal) setShowModal(false);
       if (showEditModal) setShowEditModal(false);
       if (editingGroup) setEditingGroup(null);
-      if (selectedPackage) selectPackageForEditing(null);
+      if (selectedPackage) selectPackageForEditing(null, null);
     }
   }, [modalQuery, productIdQuery, groupedInventory, selectedPackage, editingGroup]);
 
@@ -1332,16 +1344,73 @@ export default function Inventory() {
                     </div>
                   ) : (
                     <div className="space-y-1.5 col-span-2">
-                      <label className="block text-slate-400 font-semibold">Servings Remaining</label>
-                      <input 
-                        type="number" 
-                        step="any"
-                        value={editRemainingServings} 
-                        onChange={(e) => setEditRemainingServings(e.target.value)}
-                        className="w-full p-2.5 rounded-lg glass-input text-center font-bold text-white text-xs"
-                        min="0"
-                        required
-                      />
+                      <div className="flex justify-between items-center">
+                        <label className="block text-slate-400 font-semibold">
+                          {editUnitMode === 'servings' ? 'Servings Remaining' : `Amount Remaining (${normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)})`}
+                        </label>
+                        {PHYSICAL_UNITS.has(normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)) && editingGroup.serving_size > 0 && (
+                          <div className="flex bg-slate-950/60 p-0.5 rounded border border-slate-800 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditUnitMode('servings');
+                              }}
+                              className={`px-2 py-0.5 rounded font-semibold transition-colors cursor-pointer ${
+                                editUnitMode === 'servings'
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              Servings
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditUnitMode('physical');
+                                setEditPhysicalAmount((parseFloat(editRemainingServings) * editingGroup.serving_size).toFixed(1));
+                              }}
+                              className={`px-2 py-0.5 rounded font-semibold transition-colors cursor-pointer ${
+                                editUnitMode === 'physical'
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              {normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {editUnitMode === 'servings' ? (
+                        <input 
+                          type="number" 
+                          step="any"
+                          value={editRemainingServings} 
+                          onChange={(e) => {
+                            setEditRemainingServings(e.target.value);
+                            const val = parseFloat(e.target.value) || 0;
+                            setEditPhysicalAmount((val * editingGroup.serving_size).toFixed(1));
+                          }}
+                          className="w-full p-2.5 rounded-lg glass-input text-center font-bold text-white text-xs"
+                          min="0"
+                          required
+                        />
+                      ) : (
+                        <input 
+                          type="number" 
+                          step="any"
+                          value={editPhysicalAmount} 
+                          onChange={(e) => {
+                            setEditPhysicalAmount(e.target.value);
+                            const val = parseFloat(e.target.value) || 0;
+                            setEditRemainingServings((val / editingGroup.serving_size).toFixed(2));
+                          }}
+                          className="w-full p-2.5 rounded-lg glass-input text-center font-bold text-white text-xs"
+                          min="0"
+                          required
+                        />
+                      )}
+
                       <div className="flex flex-col gap-0.5 mt-1 text-[10px]">
                         <span className="text-slate-500">
                           Max: {((parseFloat(editQuantity) || 1) * (editingGroup.servings_per_package || 1)).toFixed(1)} servings
@@ -1351,7 +1420,10 @@ export default function Inventory() {
                         </span>
                         {PHYSICAL_UNITS.has(normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)) && editingGroup.serving_size > 0 && (
                           <span className="text-indigo-400 font-medium">
-                            Equivalent: {((parseFloat(editRemainingServings) || 0) * editingGroup.serving_size).toFixed(1)}{normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)}
+                            {editUnitMode === 'servings' 
+                              ? `Equivalent: ${((parseFloat(editRemainingServings) || 0) * editingGroup.serving_size).toFixed(1)}${normalizeUnit(editingGroup.serving_unit || editingGroup.product_unit)}`
+                              : `Equivalent: ${(parseFloat(editRemainingServings) || 0).toFixed(2)} servings`
+                            }
                           </span>
                         )}
                       </div>
