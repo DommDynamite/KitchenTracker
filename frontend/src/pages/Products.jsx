@@ -53,6 +53,14 @@ export default function Products() {
     localStorage.setItem('kitchen_products_view_mode', viewMode);
   }, [viewMode]);
 
+  const [sortBy, setSortBy] = useState(() => {
+    return localStorage.getItem('kitchen_products_sort_by') || 'nameAsc';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('kitchen_products_sort_by', sortBy);
+  }, [sortBy]);
+
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [toast, setToast] = useState(null); // { message: string, type: 'success' | 'error' }
 
@@ -166,6 +174,27 @@ export default function Products() {
     return matchSearch && matchChild;
   });
 
+  // Sort products based on user selection
+  filteredProducts.sort((a, b) => {
+    if (sortBy === 'nameAsc') {
+      return a.name.localeCompare(b.name);
+    }
+    if (sortBy === 'nameDesc') {
+      return b.name.localeCompare(a.name);
+    }
+    if (sortBy === 'category') {
+      const aCat = a.category || '';
+      const bCat = b.category || '';
+      return aCat.localeCompare(bCat) || a.name.localeCompare(b.name);
+    }
+    if (sortBy === 'brand') {
+      const aBrand = a.brand || '';
+      const bBrand = b.brand || '';
+      return aBrand.localeCompare(bBrand) || a.name.localeCompare(b.name);
+    }
+    return 0;
+  });
+
   const getProductImage = (prod) => {
     if (prod.image_path) return prod.image_path;
     const children = products.filter(p => p.parent_product_id == prod.id);
@@ -225,6 +254,23 @@ export default function Products() {
               </>
             )}
           </button>
+
+          {/* Sort Selector */}
+          <div className="relative">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="appearance-none flex items-center gap-1.5 px-3 py-1.5 pr-8 rounded-lg border border-slate-700/80 bg-slate-900/50 text-xs font-semibold text-slate-200 hover:border-slate-500 transition-colors cursor-pointer"
+            >
+              <option value="nameAsc">🔤 Name (A-Z)</option>
+              <option value="nameDesc">🔤 Name (Z-A)</option>
+              <option value="category">📁 Category</option>
+              <option value="brand">🏷️ Brand</option>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center px-1 text-slate-400">
+              <ChevronDown className="h-3.5 w-3.5" />
+            </div>
+          </div>
           
           <div className="flex bg-slate-950/60 p-1 rounded-lg border border-slate-800 shrink-0">
             <button 

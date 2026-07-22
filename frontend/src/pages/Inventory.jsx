@@ -131,6 +131,14 @@ export default function Inventory() {
     localStorage.setItem('kitchen_inventory_view_mode', viewMode);
   }, [viewMode]);
 
+  const [sortBy, setSortBy] = useState(() => {
+    return localStorage.getItem('kitchen_inventory_sort_by') || 'expiry';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('kitchen_inventory_sort_by', sortBy);
+  }, [sortBy]);
+
   // Edit Modal State (Grouped)
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
@@ -569,6 +577,34 @@ export default function Inventory() {
     }
   });
 
+  // Sort grouped inventory based on user selection
+  if (sortBy === 'expiry') {
+    groupedInventory.sort((a, b) => {
+      const aExp = getGroupSoonestExpiry(a.items);
+      const bExp = getGroupSoonestExpiry(b.items);
+      if (!aExp && bExp) return 1;
+      if (aExp && !bExp) return -1;
+      if (aExp && bExp) {
+        return aExp < bExp ? -1 : aExp > bExp ? 1 : 0;
+      }
+      return a.product_name.localeCompare(b.product_name);
+    });
+  } else if (sortBy === 'nameAsc') {
+    groupedInventory.sort((a, b) => a.product_name.localeCompare(b.product_name));
+  } else if (sortBy === 'nameDesc') {
+    groupedInventory.sort((a, b) => b.product_name.localeCompare(a.product_name));
+  } else if (sortBy === 'packagesDesc') {
+    groupedInventory.sort((a, b) => b.items.length - a.items.length || a.product_name.localeCompare(b.product_name));
+  } else if (sortBy === 'packagesAsc') {
+    groupedInventory.sort((a, b) => a.items.length - b.items.length || a.product_name.localeCompare(b.product_name));
+  } else if (sortBy === 'location') {
+    groupedInventory.sort((a, b) => {
+      const aLoc = Array.from(a.storage_locations).sort()[0] || '';
+      const bLoc = Array.from(b.storage_locations).sort()[0] || '';
+      return aLoc.localeCompare(bLoc) || a.product_name.localeCompare(b.product_name);
+    });
+  }
+
   const syncSelectedPackage = (freshPkg) => {
     if (!freshPkg) {
       if (selectedPackage !== null) {
@@ -735,6 +771,25 @@ export default function Inventory() {
               <Calendar className="h-3.5 w-3.5" />
               <span>Expiring Soon</span>
             </button>
+
+            {/* Sort Selector */}
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="appearance-none flex items-center gap-1.5 px-3 py-1.5 pr-8 rounded-lg border border-slate-700/80 bg-slate-900/50 text-xs font-semibold text-slate-200 hover:border-slate-500 transition-colors cursor-pointer"
+              >
+                <option value="expiry">📅 Soonest Expiry</option>
+                <option value="nameAsc">🔤 Name (A-Z)</option>
+                <option value="nameDesc">🔤 Name (Z-A)</option>
+                <option value="packagesDesc">📦 Most Packages</option>
+                <option value="packagesAsc">📦 Least Packages</option>
+                <option value="location">📍 Primary Location</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center px-1 text-slate-400">
+                <ChevronDown className="h-3.5 w-3.5" />
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 p-1 rounded-lg">
