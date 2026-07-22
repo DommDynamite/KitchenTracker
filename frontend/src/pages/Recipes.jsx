@@ -691,13 +691,18 @@ export default function Recipes({ settings = {} }) {
       
       // Populate ingredients
       if (data.ingredients && data.ingredients.length > 0) {
-        setRecipeIngredients(data.ingredients.map(ing => ({
-          product_id: ing.product_id.toString(),
-          amount: ing.amount.toString(),
-          unit: ing.unit
-        })));
+        setRecipeIngredients(data.ingredients.map(ing => {
+          const isUnlinked = ing.product_id === null;
+          return {
+            product_id: ing.product_id ? ing.product_id.toString() : '',
+            name: isUnlinked ? (ing.name || ing.product_name || '') : '',
+            amount: ing.amount !== null && ing.amount !== undefined ? ing.amount.toString() : '',
+            unit: ing.unit || 'pieces',
+            isUnlinked: isUnlinked
+          };
+        }));
       } else {
-        setRecipeIngredients([{ product_id: '', amount: '', unit: 'pieces' }]);
+        setRecipeIngredients([{ product_id: '', name: '', amount: '', unit: 'pieces', isUnlinked: false }]);
       }
       
       // Populate equipment
