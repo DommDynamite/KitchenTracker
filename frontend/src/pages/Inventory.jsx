@@ -39,11 +39,11 @@ function getEffectiveExpiry(item) {
   return printedExpiry;
 }
 
-const PHYSICAL_UNITS = new Set([
+export const PHYSICAL_UNITS = new Set([
   'g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl_oz', 'cup', 'pint', 'quart', 'gallon', 'tbsp', 'tsp'
 ]);
 
-function normalizeUnit(unit) {
+export function normalizeUnit(unit) {
   if (!unit) return '';
   const u = unit.toLowerCase().trim();
   if (u === 'g' || u === 'gram' || u === 'grams') return 'g';
@@ -62,7 +62,7 @@ function normalizeUnit(unit) {
   return u;
 }
 
-function formatStock(remainingServings, originalServings, productUnit, servingSize, servingUnit) {
+export function formatStock(remainingServings, originalServings, productUnit, servingSize, servingUnit) {
   if (productUnit === '%') {
     return `${remainingServings.toFixed(0)}%`;
   }
@@ -85,7 +85,7 @@ function formatStock(remainingServings, originalServings, productUnit, servingSi
   return `${remainingServings.toFixed(1)} / ${originalServings.toFixed(0)} srv`;
 }
 
-function formatStockCompact(remainingServings, originalServings, productUnit, servingSize, servingUnit) {
+export function formatStockCompact(remainingServings, originalServings, productUnit, servingSize, servingUnit) {
   if (productUnit === '%') {
     return `${remainingServings.toFixed(0)}%`;
   }
