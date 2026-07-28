@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Plus, Search, Edit2, Trash2, Tag, 
-  Layers, Package, Check, X, Upload, Camera, Database,
-  Eye, EyeOff, LayoutGrid, List
+  Plus, Search, Edit2, Trash2, 
+  Layers, Package, Check, 
+  Eye, EyeOff, LayoutGrid, List, ChevronDown
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import ProductModal from '../components/ProductModal';

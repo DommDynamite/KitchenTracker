@@ -7,6 +7,7 @@
     "dev": "vite --host",
     "build": "vite build",
     "lint": "oxlint",
+    "test": "oxlint -A all -D no-undef -D react/jsx-no-undef",
     "preview": "vite preview"
   },
   "dependencies": {
