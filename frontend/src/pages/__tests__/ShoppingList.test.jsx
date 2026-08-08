@@ -94,7 +94,7 @@ describe('ShoppingList Page Component', () => {
     expect(screen.getByText('Bananas')).toBeInTheDocument();
   });
 
-  it('allows adding manual custom item to shopping list', async () => {
+  it('allows adding manual custom item to shopping list with direct text input', async () => {
     render(
       <MemoryRouter>
         <ShoppingList />
@@ -107,6 +107,41 @@ describe('ShoppingList Page Component', () => {
 
     // Click button to open custom item modal
     fireEvent.click(screen.getByRole('button', { name: /Add Custom Item/i }));
+
+    // Type custom item name
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Paper Towels/i), {
+      target: { value: 'Paper Towels' }
+    });
+
+    // Fill amount
+    fireEvent.change(screen.getByPlaceholderText('e.g. 2'), {
+      target: { value: '2' }
+    });
+
+    // Click submit button
+    fireEvent.click(screen.getByRole('button', { name: /Add Item/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Add Item/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it('allows adding item selected from catalog mode', async () => {
+    render(
+      <MemoryRouter>
+        <ShoppingList />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Eggs')).toBeInTheDocument();
+    });
+
+    // Click button to open custom item modal
+    fireEvent.click(screen.getByRole('button', { name: /Add Custom Item/i }));
+
+    // Switch to catalog mode
+    fireEvent.click(screen.getByRole('button', { name: /From Product Catalog/i }));
 
     // Select product from choose dropdown (the first combobox)
     fireEvent.change(screen.getAllByRole('combobox')[0], {

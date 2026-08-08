@@ -46,6 +46,27 @@ test('Shopping List API database operations - thresholds and buys', async () => 
     assert.strictEqual(manualItem.product_id, productId);
     assert.strictEqual(manualItem.is_completed, 0);
 
+    // 4. Add a custom / temporary item without product_id
+    const customResult = await db.run(`
+      INSERT INTO shopping_list (custom_name, amount, unit, is_completed, notes)
+      VALUES ('TEST_Paper_Towels', 2.0, 'pack', 0, 'Temporary household item')
+    `);
+    const customShopId = customResult.lastID;
+
+    const customItem = await db.get(`
+      SELECT sl.*, COALESCE(p.name, sl.custom_name) as product_name
+      FROM shopping_list sl
+      LEFT JOIN products p ON sl.product_id = p.id
+      WHERE sl.id = ?
+    `, [customShopId]);
+
+    assert.strictEqual(customItem.product_id, null);
+    assert.strictEqual(customItem.custom_name, 'TEST_Paper_Towels');
+    assert.strictEqual(customItem.product_name, 'TEST_Paper_Towels');
+    assert.strictEqual(customItem.amount, 2.0);
+    assert.strictEqual(customItem.unit, 'pack');
+    assert.strictEqual(customItem.is_completed, 0);
+
   } finally {
     await db.run('ROLLBACK');
   }

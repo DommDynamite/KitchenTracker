@@ -62,8 +62,10 @@ export default function ShoppingList() {
   const [loading, setLoading] = useState(true);
 
   // Manual Item Add form
+  const [addMode, setAddMode] = useState('custom'); // 'custom' or 'catalog'
+  const [customName, setCustomName] = useState('');
   const [productId, setProductId] = useState('');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState('1');
   const [unit, setUnit] = useState('pieces');
   const [notes, setNotes] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -126,16 +128,25 @@ export default function ShoppingList() {
 
   const handleAddManualItem = async (e) => {
     e.preventDefault();
-    if (!productId || !amount || !unit) {
-      showToast('Product, Amount, and Unit are required.', 'warning');
+    if (addMode === 'custom' && !customName.trim()) {
+      showToast('Item Name is required.', 'warning');
+      return;
+    }
+    if (addMode === 'catalog' && !productId) {
+      showToast('Please select a product from the list.', 'warning');
+      return;
+    }
+    if (!amount || !unit) {
+      showToast('Amount and Unit are required.', 'warning');
       return;
     }
 
     const payload = {
-      product_id: parseInt(productId),
-      amount: parseFloat(amount),
+      product_id: addMode === 'catalog' ? parseInt(productId, 10) : null,
+      custom_name: addMode === 'custom' ? customName.trim() : null,
+      amount: parseFloat(amount) || 1.0,
       unit,
-      notes
+      notes: notes.trim() || null
     };
 
     try {
@@ -146,14 +157,20 @@ export default function ShoppingList() {
       });
       if (res.ok) {
         setShowAddModal(false);
+        setCustomName('');
         setProductId('');
-        setAmount('');
+        setAmount('1');
         setUnit('pieces');
         setNotes('');
         fetchShoppingListAndProducts();
+        showToast('Item added to shopping list!', 'success');
+      } else {
+        const err = await res.json();
+        showToast(`Error adding item: ${err.error}`, 'error');
       }
     } catch (error) {
       console.error('Error adding shopping list item:', error);
+      showToast('Network error adding item', 'error');
     }
   };
 
@@ -210,7 +227,7 @@ export default function ShoppingList() {
     };
 
     const combined = [...selectedManual, ...selectedAuto].map(item => {
-      const product = products.find(p => p.id === item.product_id);
+      const product = item.product_id ? products.find(p => p.id === item.product_id) : null;
       const catName = product ? product.category : null;
       
       // Determine the default child/active product
@@ -223,13 +240,15 @@ export default function ShoppingList() {
         }
       }
       
-      const defaultQty = calculateDefaultPurchaseQty(item.amount, item.unit, selectedProduct);
+      const defaultQty = selectedProduct 
+        ? calculateDefaultPurchaseQty(item.amount, item.unit, selectedProduct) 
+        : (parseFloat(item.amount) || 1);
 
       return {
-        product_id: selectedProduct ? selectedProduct.id : item.product_id,
+        product_id: selectedProduct ? selectedProduct.id : (item.product_id || ''),
         name: selectedProduct ? selectedProduct.name : item.product_name,
         // The original shopping list details
-        original_product_id: item.product_id,
+        original_product_id: item.product_id || null,
         original_name: item.product_name,
         original_amount: item.amount,
         original_unit: item.unit,
@@ -261,12 +280,14 @@ export default function ShoppingList() {
 
   const handleCheckoutProductChange = (idx, newProductId) => {
     const updated = [...checkoutItems];
-    const targetProduct = products.find(p => p.id === newProductId);
+    const targetProduct = newProductId ? products.find(p => p.id === parseInt(newProductId, 10)) : null;
     
-    updated[idx].product_id = newProductId;
+    updated[idx].product_id = targetProduct ? targetProduct.id : '';
     updated[idx].name = targetProduct ? targetProduct.name : updated[idx].original_name;
     
-    const newQty = calculateDefaultPurchaseQty(updated[idx].original_amount, updated[idx].original_unit, targetProduct);
+    const newQty = targetProduct 
+      ? calculateDefaultPurchaseQty(updated[idx].original_amount, updated[idx].original_unit, targetProduct)
+      : (parseFloat(updated[idx].original_amount) || 1);
     updated[idx].quantity = newQty;
     
     setCheckoutItems(updated);
@@ -299,7 +320,7 @@ export default function ShoppingList() {
 
     // Map checkout items with global store/storage values if individual ones aren't set
     const payloadItems = checkoutItems.map(item => ({
-      product_id: item.product_id,
+      product_id: item.product_id ? parseInt(item.product_id, 10) : null,
       quantity: parseFloat(item.quantity) || 1,
       price: item.price ? parseFloat(item.price) : null,
       store_location: globalStore || null,
@@ -456,9 +477,14 @@ export default function ShoppingList() {
                         {selectedItems[item.id] ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
                       </div>
                       <div className="min-w-0">
-                        <span className="font-semibold text-white text-sm block group-hover:text-indigo-300 transition-colors">
-                          {item.product_name} 
-                          {item.product_brand && <span className="text-xs text-slate-400 ml-1">({item.product_brand})</span>}
+                        <span className="font-semibold text-white text-sm flex items-center gap-1.5 flex-wrap group-hover:text-indigo-300 transition-colors">
+                          <span>{item.product_name}</span>
+                          {item.product_brand && <span className="text-xs text-slate-400 font-normal">({item.product_brand})</span>}
+                          {!item.product_id && (
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/25 text-indigo-300">
+                              Custom
+                            </span>
+                          )}
                         </span>
                         {item.notes && (
                           <span className="text-xs text-slate-500 block mt-0.5">{item.notes}</span>
@@ -501,91 +527,156 @@ export default function ShoppingList() {
 
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <Plus className="h-5 w-5 text-indigo-400" />
-              Add Custom Shopping Item
+              Add Shopping Item
             </h2>
 
-            {products.length === 0 ? (
-              <div className="text-center py-6 text-slate-400">
-                <p>Register products first to add them to your shopping list.</p>
+            <form onSubmit={handleAddManualItem} className="space-y-4 text-xs text-slate-200">
+              {/* Mode Selector */}
+              <div className="space-y-1.5">
+                <label className="block text-slate-400 font-semibold">Item Source</label>
+                <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-950/60 border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setAddMode('custom')}
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      addMode === 'custom' 
+                        ? 'bg-gradient-indigo text-white shadow-md' 
+                        : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+                    }`}
+                  >
+                    Custom / Temp Item
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddMode('catalog')}
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      addMode === 'catalog' 
+                        ? 'bg-gradient-indigo text-white shadow-md' 
+                        : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+                    }`}
+                  >
+                    From Product Catalog
+                  </button>
+                </div>
               </div>
-            ) : (
-              <form onSubmit={handleAddManualItem} className="space-y-4 text-xs text-slate-200">
-                {/* Select Product */}
+
+              {addMode === 'custom' ? (
                 <div className="space-y-1.5">
-                  <label className="block text-slate-400 font-semibold">Select Product *</label>
+                  <label className="block text-slate-400 font-semibold">Item Name *</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Paper Towels, Sliced Bread, Foil, Bananas"
+                    value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    className="w-full p-2.5 rounded-lg glass-input text-white font-medium"
+                    required
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="block text-slate-400 font-semibold">Select Registered Product *</label>
                   <select 
                     value={productId} 
-                    onChange={(e) => setProductId(e.target.value)}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setProductId(id);
+                      if (id) {
+                        const selected = products.find(p => p.id === parseInt(id, 10));
+                        if (selected && selected.default_unit) {
+                          setUnit(selected.default_unit);
+                        }
+                      }
+                    }}
                     className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
                     required
                   >
                     <option value="">-- Choose Product --</option>
                     {products.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.brand ? `(${p.brand})` : ''} {p.is_parent ? ' (Parent)' : ''}
+                      </option>
                     ))}
                   </select>
+                  {products.length === 0 && (
+                    <span className="text-[11px] text-amber-400 block mt-1">
+                      No registered products found. Switch to "Custom / Temp Item" to add items without registering.
+                    </span>
+                  )}
                 </div>
+              )}
 
-                {/* Amount & Unit */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-slate-400 font-semibold">Amount *</label>
-                    <input 
-                      type="number" 
-                      step="any"
-                      placeholder="e.g. 2"
-                      value={amount} 
-                      onChange={(e) => setAmount(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input"
-                      min="0.1"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-slate-400 font-semibold">Unit *</label>
-                    <select 
-                      value={unit} 
-                      onChange={(e) => setUnit(e.target.value)}
-                      className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
-                      required
-                    >
-                      <option value="pieces">pieces</option>
-                      <option value="g">grams (g)</option>
-                      <option value="ml">milliliters (ml)</option>
-                      <option value="fl_oz">fluid ounces (fl_oz)</option>
-                      <option value="servings">servings</option>
-                    </select>
-                  </div>
-                </div>
-
+              {/* Amount & Unit */}
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="block text-slate-400 font-semibold">Notes</label>
+                  <label className="block text-slate-400 font-semibold">Amount *</label>
                   <input 
-                    type="text" 
-                    placeholder="e.g. Buy store brand if organic is unavailable"
-                    value={notes} 
-                    onChange={(e) => setNotes(e.target.value)}
+                    type="number" 
+                    step="any"
+                    placeholder="e.g. 2"
+                    value={amount} 
+                    onChange={(e) => setAmount(e.target.value)}
                     className="w-full p-2.5 rounded-lg glass-input"
+                    min="0.01"
+                    required
                   />
                 </div>
-
-                <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-                  <button 
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold"
+                <div className="space-y-1.5">
+                  <label className="block text-slate-400 font-semibold">Unit *</label>
+                  <select 
+                    value={unit} 
+                    onChange={(e) => setUnit(e.target.value)}
+                    className="w-full p-2.5 rounded-lg glass-input bg-slate-900"
+                    required
                   >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white font-semibold shadow-lg hover:opacity-90"
-                  >
-                    <Check className="h-4 w-4" /> Add Item
-                  </button>
+                    <option value="pieces">pieces</option>
+                    <option value="pack">pack</option>
+                    <option value="box">box</option>
+                    <option value="bottle">bottle</option>
+                    <option value="can">can</option>
+                    <option value="bag">bag</option>
+                    <option value="g">grams (g)</option>
+                    <option value="kg">kilograms (kg)</option>
+                    <option value="oz">ounces (oz)</option>
+                    <option value="lb">pounds (lb)</option>
+                    <option value="ml">milliliters (ml)</option>
+                    <option value="l">liters (l)</option>
+                    <option value="fl_oz">fluid ounces (fl_oz)</option>
+                    <option value="cup">cup</option>
+                    <option value="tbsp">tablespoon (tbsp)</option>
+                    <option value="tsp">teaspoon (tsp)</option>
+                    <option value="servings">servings</option>
+                  </select>
                 </div>
-              </form>
-            )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-slate-400 font-semibold">Notes</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Buy store brand if organic is unavailable"
+                  value={notes} 
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full p-2.5 rounded-lg glass-input"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+                <button 
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex items-center gap-1 px-5 py-2 rounded-lg bg-gradient-indigo text-white font-semibold shadow-lg hover:opacity-90 cursor-pointer"
+                >
+                  <Check className="h-4 w-4" /> Add Item
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -642,11 +733,13 @@ export default function ShoppingList() {
               <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
                 <h4 className="font-bold text-white text-xs text-left">Fill details for each package bought</h4>
                 {checkoutItems.map((item, idx) => {
-                  const originalProduct = products.find(p => p.id === item.original_product_id);
+                  const originalProduct = item.original_product_id ? products.find(p => p.id === item.original_product_id) : null;
                   const groupParentId = originalProduct ? (originalProduct.parent_product_id || originalProduct.id) : null;
-                  const alternatives = groupParentId ? products.filter(p => p.id === groupParentId || p.parent_product_id === groupParentId) : [];
+                  const alternatives = groupParentId 
+                    ? products.filter(p => p.id === groupParentId || p.parent_product_id === groupParentId) 
+                    : products;
                   
-                  const targetProduct = products.find(p => p.id === item.product_id);
+                  const targetProduct = item.product_id ? products.find(p => p.id === item.product_id) : null;
                   
                   let unitLabel = 'packages';
                   if (targetProduct) {
@@ -655,19 +748,26 @@ export default function ShoppingList() {
                     } else {
                       unitLabel = getPluralPackageType(targetProduct.package_type);
                     }
+                  } else {
+                    unitLabel = item.original_unit || 'pieces';
                   }
 
                   return (
                     <div key={idx} className="glass-card p-3 rounded-lg border border-slate-850 space-y-2.5 text-left">
                       <div className="flex justify-between items-center font-bold text-slate-400 text-xs">
                         <span>List request: <strong className="text-white">{item.original_name}</strong> ({item.original_amount} {item.original_unit})</span>
+                        {!targetProduct && (
+                          <span className="text-[10px] text-amber-400 font-normal">
+                            Not added to inventory
+                          </span>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         <div className="space-y-1 col-span-2">
                           <label className="block text-slate-500 font-medium">Brand/Product Purchased</label>
                           <select
-                            value={item.product_id}
+                            value={item.product_id || ''}
                             onChange={(e) => {
                               const val = e.target.value;
                               if (val === '__register_new__') {
@@ -675,12 +775,17 @@ export default function ShoppingList() {
                                 setPrefilledParentIdForRegister(groupParentId);
                                 setPrefilledCategoryForRegister(originalProduct?.category || 'Pantry');
                                 setShowRegisterModal(true);
+                              } else if (val === '') {
+                                handleCheckoutProductChange(idx, '');
                               } else {
                                 handleCheckoutProductChange(idx, parseInt(val, 10));
                               }
                             }}
                             className="w-full p-2 rounded glass-input bg-slate-950 font-semibold text-xs text-white"
                           >
+                            {!item.original_product_id && (
+                              <option value="">-- Temporary Item (Do Not Track in Inventory) --</option>
+                            )}
                             {alternatives.map(alt => (
                               <option key={alt.id} value={alt.id}>
                                 {alt.name} {alt.brand ? `(${alt.brand})` : ''} {alt.is_parent ? ' (Parent Category)' : ''}

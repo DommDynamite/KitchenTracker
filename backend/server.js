@@ -1923,11 +1923,11 @@ app.get('/api/shopping-list', async (req, res) => {
   try {
     const db = await getDb();
     
-    // 1. Fetch manual list items
+    // 1. Fetch manual list items (both catalog products and custom temporary items)
     const manualItems = await db.all(`
-      SELECT sl.*, p.name as product_name, p.brand as product_brand, p.category as product_category
+      SELECT sl.*, COALESCE(p.name, sl.custom_name) as product_name, p.brand as product_brand, p.category as product_category
       FROM shopping_list sl
-      JOIN products p ON sl.product_id = p.id
+      LEFT JOIN products p ON sl.product_id = p.id
       WHERE sl.is_completed = 0
     `);
 
@@ -1953,19 +1953,22 @@ app.get('/api/shopping-list', async (req, res) => {
   }
 });
 
-// Add manual item
+// Add manual item (supports registered product_id OR temporary custom_name)
 app.post('/api/shopping-list', async (req, res) => {
-  const { product_id, amount, unit, notes } = req.body;
+  const { product_id, custom_name, amount, unit, notes } = req.body;
 
-  if (!product_id || !amount || !unit) {
-    return res.status(400).json({ error: 'product_id, amount, and unit are required' });
+  const trimmedCustomName = custom_name ? custom_name.trim() : null;
+  const parsedProductId = product_id ? parseInt(product_id, 10) : null;
+
+  if ((!parsedProductId && !trimmedCustomName) || amount === undefined || amount === null || amount === '' || !unit) {
+    return res.status(400).json({ error: 'Either product_id or custom_name is required, along with amount and unit' });
   }
 
   try {
     const db = await getDb();
     const result = await db.run(
-      'INSERT INTO shopping_list (product_id, amount, unit, notes) VALUES (?, ?, ?, ?)',
-      [product_id, amount, unit, notes || null]
+      'INSERT INTO shopping_list (product_id, custom_name, amount, unit, notes) VALUES (?, ?, ?, ?, ?)',
+      [parsedProductId, trimmedCustomName, parseFloat(amount) || 1.0, unit, notes || null]
     );
     res.status(201).json({ id: result.lastID });
   } catch (err) {
@@ -2001,40 +2004,43 @@ app.post('/api/shopping-list/purchase', async (req, res) => {
     const completedListIds = [];
 
     for (const item of items) {
-      let product = await db.get('SELECT * FROM products WHERE id = ?', [item.product_id]);
-      if (!product) continue;
-      await enrichProductsWithInheritedProperties(db, product);
+      if (item.product_id) {
+        let product = await db.get('SELECT * FROM products WHERE id = ?', [item.product_id]);
+        if (product) {
+          await enrichProductsWithInheritedProperties(db, product);
 
-      const qty = parseFloat(item.quantity);
-      const numFullPackages = Math.floor(qty);
-      const fractionalPackage = qty % 1;
-      
-      const packagesToInsert = [];
-      for (let i = 0; i < numFullPackages; i++) {
-        packagesToInsert.push(1.0);
-      }
-      if (fractionalPackage > 0.001) {
-        packagesToInsert.push(fractionalPackage);
-      }
+          const qty = parseFloat(item.quantity) || 1.0;
+          const numFullPackages = Math.floor(qty);
+          const fractionalPackage = qty % 1;
+          
+          const packagesToInsert = [];
+          for (let i = 0; i < numFullPackages; i++) {
+            packagesToInsert.push(1.0);
+          }
+          if (fractionalPackage > 0.001) {
+            packagesToInsert.push(fractionalPackage);
+          }
 
-      const pricePerUnit = item.price ? parseFloat(item.price) / qty : null;
+          const pricePerUnit = item.price ? parseFloat(item.price) / qty : null;
 
-      for (const pkgQty of packagesToInsert) {
-        const roundedPkgQty = Math.round(pkgQty * 100) / 100;
-        const totalServings = Math.round((roundedPkgQty * product.servings_per_package) * 100) / 100;
-        const pkgPrice = pricePerUnit ? Math.round((roundedPkgQty * pricePerUnit) * 100) / 100 : null;
-        
-        const insertResult = await db.run(
-          `INSERT INTO inventory_items (
-            product_id, quantity, original_servings, remaining_servings, price, store_location, storage_location,
-            purchase_date, expiration_date, status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            item.product_id, roundedPkgQty, totalServings, totalServings, pkgPrice,
-            item.store_location || null, item.storage_location || 'Pantry', today, item.expiration_date || null, 'unopened'
-          ]
-        );
-        insertedIds.push(insertResult.lastID);
+          for (const pkgQty of packagesToInsert) {
+            const roundedPkgQty = Math.round(pkgQty * 100) / 100;
+            const totalServings = Math.round((roundedPkgQty * (product.servings_per_package || 1.0)) * 100) / 100;
+            const pkgPrice = pricePerUnit ? Math.round((roundedPkgQty * pricePerUnit) * 100) / 100 : null;
+            
+            const insertResult = await db.run(
+              `INSERT INTO inventory_items (
+                product_id, quantity, original_servings, remaining_servings, price, store_location, storage_location,
+                purchase_date, expiration_date, status
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                item.product_id, roundedPkgQty, totalServings, totalServings, pkgPrice,
+                item.store_location || null, item.storage_location || 'Pantry', today, item.expiration_date || null, 'unopened'
+              ]
+            );
+            insertedIds.push(insertResult.lastID);
+          }
+        }
       }
 
       // Mark list item as completed if it was a manual item (ids not prefixed with 'auto-')

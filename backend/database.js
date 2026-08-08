@@ -205,7 +205,8 @@ export async function initDb() {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS shopping_list (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      product_id INTEGER NOT NULL,
+      product_id INTEGER,
+      custom_name TEXT,
       amount REAL NOT NULL,
       unit TEXT NOT NULL,
       is_completed INTEGER NOT NULL DEFAULT 0,
@@ -333,6 +334,45 @@ export async function initDb() {
       console.log('recipe_ingredients migration completed successfully.');
     } catch (err) {
       console.error('Error during recipe_ingredients migration, rolling back:', err);
+      try { await db.exec('ROLLBACK'); } catch (_) {}
+    }
+  }
+
+  // Migration for shopping_list to support custom/temporary items (nullable product_id & custom_name column)
+  const slColumns = await db.all("PRAGMA table_info(shopping_list)");
+  const hasCustomNameCol = slColumns.some(c => c.name === 'custom_name');
+  const slProductIdCol = slColumns.find(c => c.name === 'product_id');
+  const isSlProductIdNullable = slProductIdCol ? slProductIdCol.notnull === 0 : true;
+
+  if (!hasCustomNameCol || !isSlProductIdNullable) {
+    console.log('Migrating shopping_list to support custom/temporary items...');
+    await db.run('BEGIN TRANSACTION');
+    try {
+      await db.exec('ALTER TABLE shopping_list RENAME TO old_shopping_list');
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS shopping_list (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          product_id INTEGER,
+          custom_name TEXT,
+          amount REAL NOT NULL,
+          unit TEXT NOT NULL,
+          is_completed INTEGER NOT NULL DEFAULT 0,
+          notes TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        );
+      `);
+      await db.exec(`
+        INSERT INTO shopping_list (id, product_id, custom_name, amount, unit, is_completed, notes, created_at)
+        SELECT sl.id, sl.product_id, NULL, sl.amount, sl.unit, sl.is_completed, sl.notes, sl.created_at
+        FROM old_shopping_list sl
+      `);
+      await db.exec('DROP TABLE old_shopping_list');
+      await db.exec(`CREATE INDEX IF NOT EXISTS idx_shopping_list_product ON shopping_list(product_id);`);
+      await db.exec('COMMIT');
+      console.log('shopping_list migration completed successfully.');
+    } catch (err) {
+      console.error('Error during shopping_list migration, rolling back:', err);
       try { await db.exec('ROLLBACK'); } catch (_) {}
     }
   }
