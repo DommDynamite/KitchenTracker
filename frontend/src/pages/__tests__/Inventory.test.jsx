@@ -110,4 +110,40 @@ describe('Inventory Page Component', () => {
     // Sugar should no longer be visible
     expect(screen.queryByText('Sugar')).not.toBeInTheDocument();
   });
+
+  it('prompts confirmation when clicking Consume Package in edit modal', async () => {
+    render(
+      <MemoryRouter>
+        <Inventory />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Sugar')).toBeInTheDocument();
+    });
+
+    // Click manage packages icon button
+    fireEvent.click(screen.getByTitle('Manage Product Packages'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Consume Package/i })).toBeInTheDocument();
+    });
+
+    // Click Consume Package
+    fireEvent.click(screen.getByRole('button', { name: /Consume Package/i }));
+
+    // Confirmation modal should appear
+    await waitFor(() => {
+      expect(screen.getByText(/Are you sure you want to consume all remaining servings/i)).toBeInTheDocument();
+    });
+
+    // Click Confirm Consume button
+    const consumeButtons = screen.getAllByRole('button', { name: /^Consume$/i });
+    const confirmBtn = consumeButtons[consumeButtons.length - 1];
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Are you sure you want to consume all remaining servings/i)).not.toBeInTheDocument();
+    });
+  });
 });

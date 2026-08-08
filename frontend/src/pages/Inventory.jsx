@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { 
   Plus, Search, Sliders, Calendar, Trash2, Check, X,
@@ -149,11 +149,10 @@ export default function Inventory() {
   const [editExpirationDate, setEditExpirationDate] = useState('');
   const [editUnitMode, setEditUnitMode] = useState('servings'); // 'servings' | 'physical'
   const [editPhysicalAmount, setEditPhysicalAmount] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [confirmModalConfig, setConfirmModalConfig] = useState(null);
 
   const [storeSuggestions, setStoreSuggestions] = useState([]);
   const [locations, setLocations] = useState([]);
-
   const [categories, setCategories] = useState([]);
 
   const fetchCategories = async () => {
@@ -209,6 +208,7 @@ export default function Inventory() {
       console.error('Error fetching locations:', err);
     }
   };
+
   const toggleLocation = (locName) => {
     if (locName === 'All') {
       setSelectedLocations([]);
@@ -222,6 +222,7 @@ export default function Inventory() {
       }
     });
   };
+
   const fetchInventoryAndProducts = async () => {
     setLoading(true);
     try {
@@ -273,6 +274,10 @@ export default function Inventory() {
     setSearchParams({ modal: 'add' });
   };
 
+  const handleCloseModal = () => {
+    setSearchParams({});
+  };
+
   const handleInventorySaved = () => {
     fetchInventoryAndProducts();
     fetchStores();
@@ -306,15 +311,30 @@ export default function Inventory() {
   };
 
   const handleDeleteItem = async (id) => {
-    setDeleteConfirm({
+    setConfirmModalConfig({
+      title: 'Delete Package',
       message: 'Delete this package log? (It will be removed entirely, not marked as consumed)',
+      confirmText: 'Delete',
+      icon: 'trash',
       onConfirm: async () => {
         try {
           const res = await fetch(`/api/inventory/${id}`, {
             method: 'DELETE'
           });
           if (res.ok) {
-            setSearchParams({});
+            setEditingGroup(prevGroup => {
+              if (!prevGroup) return null;
+              const remaining = prevGroup.items.filter(item => item.id !== id);
+              if (remaining.length === 0) {
+                setSearchParams({});
+                return null;
+              }
+              const nextGroup = { ...prevGroup, items: remaining };
+              if (selectedPackage && selectedPackage.id === id) {
+                selectPackageForEditing(remaining[0], nextGroup);
+              }
+              return nextGroup;
+            });
             fetchInventoryAndProducts();
           }
         } catch (error) {
@@ -386,32 +406,54 @@ export default function Inventory() {
     }
   };
 
-  const handleConsumePackage = async (packageId) => {
-    if (!selectedPackage) return;
+  const handleConsumePackage = (packageId) => {
+    if (!packageId) return;
     
-    const payload = {
-      quantity: parseFloat(editQuantity),
-      remaining_servings: 0,
-      storage_location: editStorageLocation,
-      expiration_date: editExpirationDate || null
-    };
+    setConfirmModalConfig({
+      title: 'Consume Package',
+      message: 'Are you sure you want to consume all remaining servings for this package? It will be marked as consumed and removed from active inventory.',
+      confirmText: 'Consume',
+      icon: 'warning',
+      onConfirm: async () => {
+        const payload = {
+          quantity: parseFloat(editQuantity) || 1,
+          remaining_servings: 0,
+          storage_location: editStorageLocation,
+          expiration_date: editExpirationDate || null
+        };
 
-    try {
-      const res = await fetch(`/api/inventory/${packageId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        showToast('Package consumed!', 'success');
-        fetchInventoryAndProducts();
-      } else {
-        const err = await res.json();
-        showToast(`Error consuming package: ${err.error}`, 'error');
+        try {
+          const res = await fetch(`/api/inventory/${packageId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (res.ok) {
+            showToast('Package consumed!', 'success');
+            // Remove consumed item from current editing modal group immediately
+            setEditingGroup(prevGroup => {
+              if (!prevGroup) return null;
+              const remaining = prevGroup.items.filter(item => item.id !== packageId);
+              if (remaining.length === 0) {
+                setSearchParams({});
+                return null;
+              }
+              const nextGroup = { ...prevGroup, items: remaining };
+              if (selectedPackage && selectedPackage.id === packageId) {
+                selectPackageForEditing(remaining[0], nextGroup);
+              }
+              return nextGroup;
+            });
+            fetchInventoryAndProducts();
+          } else {
+            const err = await res.json();
+            showToast(`Error consuming package: ${err.error}`, 'error');
+          }
+        } catch (error) {
+          console.error('Error consuming package:', error);
+        }
       }
-    } catch (error) {
-      console.error('Error consuming package:', error);
-    }
+    });
   };
 
   // Filter criteria
@@ -457,165 +499,168 @@ export default function Inventory() {
     );
   };
 
-  const filteredInventory = inventory.filter(item => {
-    const product = products.find(p => p.id == item.product_id);
-    const parentProduct = item.parent_product_id ? products.find(p => p.id == item.parent_product_id) : null;
-
-    const searchTargets = [
-      item.product_name,
-      item.product_brand,
-      item.store_location,
-      item.product_category,
-      product?.name,
-      product?.brand,
-      product?.category,
-      parentProduct?.name,
-      parentProduct?.brand,
-      parentProduct?.category
-    ].filter(Boolean);
-
-    const matchSearch = !searchQuery.trim() || searchTargets.some(target => matchSearchText(target, searchQuery));
-
-    const matchLocation = selectedLocations.length === 0 || 
-      selectedLocations.includes(item.storage_location);
-
-    const matchExpiringSoon = !filterExpiringSoon || getUrgency(getEffectiveExpiry(item)) !== 'safe';
-
-    return matchSearch && matchLocation && matchExpiringSoon;
-  });
-
-  const groupedInventory = [];
-  const groups = {};
-
-  filteredInventory.forEach(item => {
-    const groupId = item.parent_product_id || item.product_id;
-    if (!groups[groupId]) {
+  const groupedInventory = useMemo(() => {
+    const filtered = inventory.filter(item => {
+      const product = products.find(p => p.id == item.product_id);
       const parentProduct = item.parent_product_id ? products.find(p => p.id == item.parent_product_id) : null;
 
-      groups[groupId] = {
-        product_id: groupId,
-        product_name: parentProduct ? parentProduct.name : item.product_name,
-        product_brand: parentProduct ? (parentProduct.brand || '') : (item.product_brand || ''),
-        product_image: parentProduct ? parentProduct.image_path : item.product_image,
-        product_category: parentProduct ? parentProduct.category : item.product_category,
-        product_unit: parentProduct ? parentProduct.default_unit : item.product_unit,
-        servings_per_package: parentProduct ? parentProduct.servings_per_package : item.servings_per_package,
-        serving_size: parentProduct ? parentProduct.serving_size : item.serving_size,
-        serving_unit: parentProduct ? parentProduct.serving_unit : item.serving_unit,
-        default_consumption: parentProduct ? parentProduct.default_consumption : item.default_consumption,
-        use_by_days_after_opening: parentProduct ? parentProduct.use_by_days_after_opening : item.use_by_days_after_opening,
-        package_count: 0,
-        total_remaining_servings: 0,
-        total_original_servings: 0,
-        total_price: 0,
-        storage_locations: new Set(),
-        items: []
-      };
-      groupedInventory.push(groups[groupId]);
-    }
-    const g = groups[groupId];
-    g.package_count += item.quantity;
-    g.total_remaining_servings += item.remaining_servings;
-    g.total_original_servings += item.original_servings;
-    if (item.price) {
-      g.total_price += item.price;
-    }
-    if (item.storage_location) {
-      g.storage_locations.add(item.storage_location);
-    }
-    g.items.push(item);
-  });
+      const searchTargets = [
+        item.product_name,
+        item.product_brand,
+        item.store_location,
+        item.product_category,
+        product?.name,
+        product?.brand,
+        product?.category,
+        parentProduct?.name,
+        parentProduct?.brand,
+        parentProduct?.category
+      ].filter(Boolean);
 
-  // Resolve group properties (images and parent product inherited fields) after grouping is complete
-  groupedInventory.forEach(g => {
-    const groupProduct = products.find(p => p.id == g.product_id);
-    
-    // 1. Sort active inventory items (opened first, then oldest expiration/purchase date)
-    let activeItemForInheritance = null;
-    if (g.items.length > 0) {
-      const sortedItems = [...g.items].sort((a, b) => {
-        if (a.status === 'opened' && b.status !== 'opened') return -1;
-        if (a.status !== 'opened' && b.status === 'opened') return 1;
-        const aExp = getEffectiveExpiry(a);
-        const bExp = getEffectiveExpiry(b);
+      const matchSearch = !searchQuery.trim() || searchTargets.some(target => matchSearchText(target, searchQuery));
+
+      const matchLocation = selectedLocations.length === 0 || 
+        selectedLocations.includes(item.storage_location);
+
+      const matchExpiringSoon = !filterExpiringSoon || getUrgency(getEffectiveExpiry(item)) !== 'safe';
+
+      return matchSearch && matchLocation && matchExpiringSoon;
+    });
+
+    const groupsList = [];
+    const groups = {};
+
+    filtered.forEach(item => {
+      const groupId = item.parent_product_id || item.product_id;
+      if (!groups[groupId]) {
+        const parentProduct = item.parent_product_id ? products.find(p => p.id == item.parent_product_id) : null;
+
+        groups[groupId] = {
+          product_id: groupId,
+          product_name: parentProduct ? parentProduct.name : item.product_name,
+          product_brand: parentProduct ? (parentProduct.brand || '') : (item.product_brand || ''),
+          product_image: parentProduct ? parentProduct.image_path : item.product_image,
+          product_category: parentProduct ? parentProduct.category : item.product_category,
+          product_unit: parentProduct ? parentProduct.default_unit : item.product_unit,
+          servings_per_package: parentProduct ? parentProduct.servings_per_package : item.servings_per_package,
+          serving_size: parentProduct ? parentProduct.serving_size : item.serving_size,
+          serving_unit: parentProduct ? parentProduct.serving_unit : item.serving_unit,
+          default_consumption: parentProduct ? parentProduct.default_consumption : item.default_consumption,
+          use_by_days_after_opening: parentProduct ? parentProduct.use_by_days_after_opening : item.use_by_days_after_opening,
+          package_count: 0,
+          total_remaining_servings: 0,
+          total_original_servings: 0,
+          total_price: 0,
+          storage_locations: new Set(),
+          items: []
+        };
+        groupsList.push(groups[groupId]);
+      }
+      const g = groups[groupId];
+      g.package_count += item.quantity;
+      g.total_remaining_servings += item.remaining_servings;
+      g.total_original_servings += item.original_servings;
+      if (item.price) {
+        g.total_price += item.price;
+      }
+      if (item.storage_location) {
+        g.storage_locations.add(item.storage_location);
+      }
+      g.items.push(item);
+    });
+
+    // Resolve group properties (images and parent product inherited fields) after grouping is complete
+    groupsList.forEach(g => {
+      const groupProduct = products.find(p => p.id == g.product_id);
+      
+      // 1. Sort active inventory items (opened first, then oldest expiration/purchase date)
+      let activeItemForInheritance = null;
+      if (g.items.length > 0) {
+        const sortedItems = [...g.items].sort((a, b) => {
+          if (a.status === 'opened' && b.status !== 'opened') return -1;
+          if (a.status !== 'opened' && b.status === 'opened') return 1;
+          const aExp = getEffectiveExpiry(a);
+          const bExp = getEffectiveExpiry(b);
+          if (!aExp && bExp) return 1;
+          if (aExp && !bExp) return -1;
+          if (aExp && bExp) {
+            return aExp < bExp ? -1 : aExp > bExp ? 1 : 0;
+          }
+          return a.purchase_date < b.purchase_date ? -1 : a.purchase_date > b.purchase_date ? 1 : 0;
+        });
+        activeItemForInheritance = sortedItems[0];
+
+        // Resolve product image fallback
+        if (groupProduct && groupProduct.image_path) {
+          g.product_image = groupProduct.image_path;
+        } else {
+          const itemWithImage = sortedItems.find(item => item.product_image);
+          if (itemWithImage) {
+            g.product_image = itemWithImage.product_image;
+          } else {
+            const childProducts = products.filter(p => p.parent_product_id == g.product_id);
+            const childWithImage = childProducts.find(p => p.image_path);
+            g.product_image = childWithImage ? childWithImage.image_path : null;
+          }
+        }
+      } else {
+        g.product_image = groupProduct ? groupProduct.image_path : null;
+      }
+
+      // 2. If it is a parent product, inherit servings/calories/shelf life from active child item,
+      // or fallback to registry child products.
+      if (groupProduct && groupProduct.is_parent === 1) {
+        let source = null;
+        if (activeItemForInheritance) {
+          source = products.find(p => p.id == activeItemForInheritance.product_id);
+        }
+        
+        if (!source) {
+          const childProducts = products.filter(p => p.parent_product_id == g.product_id);
+          source = childProducts.find(c => (c.serving_size > 0 && c.serving_size !== 1.0) || c.calories_per_serving !== null) || childProducts[0];
+        }
+
+        if (source) {
+          g.servings_per_package = source.servings_per_package;
+          g.serving_size = source.serving_size;
+          g.serving_unit = source.serving_unit;
+          g.calories_per_serving = source.calories_per_serving;
+          g.use_by_days_after_opening = source.use_by_days_after_opening;
+          g.default_consumption = source.default_consumption;
+        }
+      }
+    });
+
+    // Sort grouped inventory based on user selection
+    if (sortBy === 'expiry') {
+      groupsList.sort((a, b) => {
+        const aExp = getGroupSoonestExpiry(a.items);
+        const bExp = getGroupSoonestExpiry(b.items);
         if (!aExp && bExp) return 1;
         if (aExp && !bExp) return -1;
         if (aExp && bExp) {
           return aExp < bExp ? -1 : aExp > bExp ? 1 : 0;
         }
-        return a.purchase_date < b.purchase_date ? -1 : a.purchase_date > b.purchase_date ? 1 : 0;
+        return a.product_name.localeCompare(b.product_name);
       });
-      activeItemForInheritance = sortedItems[0];
-
-      // Resolve product image fallback
-      if (groupProduct && groupProduct.image_path) {
-        g.product_image = groupProduct.image_path;
-      } else {
-        const itemWithImage = sortedItems.find(item => item.product_image);
-        if (itemWithImage) {
-          g.product_image = itemWithImage.product_image;
-        } else {
-          const childProducts = products.filter(p => p.parent_product_id == g.product_id);
-          const childWithImage = childProducts.find(p => p.image_path);
-          g.product_image = childWithImage ? childWithImage.image_path : null;
-        }
-      }
-    } else {
-      g.product_image = groupProduct ? groupProduct.image_path : null;
+    } else if (sortBy === 'nameAsc') {
+      groupsList.sort((a, b) => a.product_name.localeCompare(b.product_name));
+    } else if (sortBy === 'nameDesc') {
+      groupsList.sort((a, b) => b.product_name.localeCompare(a.product_name));
+    } else if (sortBy === 'packagesDesc') {
+      groupsList.sort((a, b) => b.items.length - a.items.length || a.product_name.localeCompare(b.product_name));
+    } else if (sortBy === 'packagesAsc') {
+      groupsList.sort((a, b) => a.items.length - b.items.length || a.product_name.localeCompare(b.product_name));
+    } else if (sortBy === 'location') {
+      groupsList.sort((a, b) => {
+        const aLoc = Array.from(a.storage_locations).sort()[0] || '';
+        const bLoc = Array.from(b.storage_locations).sort()[0] || '';
+        return aLoc.localeCompare(bLoc) || a.product_name.localeCompare(b.product_name);
+      });
     }
 
-    // 2. If it is a parent product, inherit servings/calories/shelf life from active child item,
-    // or fallback to registry child products.
-    if (groupProduct && groupProduct.is_parent === 1) {
-      let source = null;
-      if (activeItemForInheritance) {
-        // Find registry child product matching the active item's product_id
-        source = products.find(p => p.id == activeItemForInheritance.product_id);
-      }
-      
-      if (!source) {
-        const childProducts = products.filter(p => p.parent_product_id == g.product_id);
-        source = childProducts.find(c => (c.serving_size > 0 && c.serving_size !== 1.0) || c.calories_per_serving !== null) || childProducts[0];
-      }
-
-      if (source) {
-        g.servings_per_package = source.servings_per_package;
-        g.serving_size = source.serving_size;
-        g.serving_unit = source.serving_unit;
-        g.calories_per_serving = source.calories_per_serving;
-        g.use_by_days_after_opening = source.use_by_days_after_opening;
-        g.default_consumption = source.default_consumption;
-      }
-    }
-  });
-
-  // Sort grouped inventory based on user selection
-  if (sortBy === 'expiry') {
-    groupedInventory.sort((a, b) => {
-      const aExp = getGroupSoonestExpiry(a.items);
-      const bExp = getGroupSoonestExpiry(b.items);
-      if (!aExp && bExp) return 1;
-      if (aExp && !bExp) return -1;
-      if (aExp && bExp) {
-        return aExp < bExp ? -1 : aExp > bExp ? 1 : 0;
-      }
-      return a.product_name.localeCompare(b.product_name);
-    });
-  } else if (sortBy === 'nameAsc') {
-    groupedInventory.sort((a, b) => a.product_name.localeCompare(b.product_name));
-  } else if (sortBy === 'nameDesc') {
-    groupedInventory.sort((a, b) => b.product_name.localeCompare(a.product_name));
-  } else if (sortBy === 'packagesDesc') {
-    groupedInventory.sort((a, b) => b.items.length - a.items.length || a.product_name.localeCompare(b.product_name));
-  } else if (sortBy === 'packagesAsc') {
-    groupedInventory.sort((a, b) => a.items.length - b.items.length || a.product_name.localeCompare(b.product_name));
-  } else if (sortBy === 'location') {
-    groupedInventory.sort((a, b) => {
-      const aLoc = Array.from(a.storage_locations).sort()[0] || '';
-      const bLoc = Array.from(b.storage_locations).sort()[0] || '';
-      return aLoc.localeCompare(bLoc) || a.product_name.localeCompare(b.product_name);
-    });
-  }
+    return groupsList;
+  }, [inventory, products, searchQuery, selectedLocations, filterExpiringSoon, sortBy]);
 
   const syncSelectedPackage = (freshPkg, group = editingGroup) => {
     if (!freshPkg) {
@@ -645,9 +690,7 @@ export default function Inventory() {
       const prodId = Number(productIdQuery);
       const matched = groupedInventory.find(g => g.product_id === prodId);
       if (matched) {
-        if (!editingGroup || editingGroup.product_id !== matched.product_id) {
-          setEditingGroup(matched);
-        }
+        setEditingGroup(matched);
         if (!showEditModal) {
           setShowEditModal(true);
         }
@@ -672,6 +715,9 @@ export default function Inventory() {
         }
       } else {
         // Group is gone (all items consumed/deleted)
+        if (showEditModal) setShowEditModal(false);
+        if (editingGroup) setEditingGroup(null);
+        if (selectedPackage) selectPackageForEditing(null, null);
         setSearchParams({});
       }
     } else {
@@ -680,7 +726,7 @@ export default function Inventory() {
       if (editingGroup) setEditingGroup(null);
       if (selectedPackage) selectPackageForEditing(null, null);
     }
-  }, [modalQuery, productIdQuery, groupedInventory, selectedPackage, editingGroup]);
+  }, [modalQuery, productIdQuery, groupedInventory]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1504,14 +1550,17 @@ export default function Inventory() {
 
 
       <ConfirmModal 
-        isOpen={!!deleteConfirm}
-        title="Delete Package"
-        message={deleteConfirm?.message}
+        isOpen={!!confirmModalConfig}
+        title={confirmModalConfig?.title || "Confirm Action"}
+        message={confirmModalConfig?.message}
+        confirmText={confirmModalConfig?.confirmText || "Confirm"}
+        cancelText={confirmModalConfig?.cancelText || "Cancel"}
+        icon={confirmModalConfig?.icon || "trash"}
         onConfirm={() => {
-          deleteConfirm?.onConfirm();
-          setDeleteConfirm(null);
+          confirmModalConfig?.onConfirm?.();
+          setConfirmModalConfig(null);
         }}
-        onCancel={() => setDeleteConfirm(null)}
+        onCancel={() => setConfirmModalConfig(null)}
       />
     </div>
   );
