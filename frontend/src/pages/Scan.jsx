@@ -4,9 +4,10 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { 
   Camera, CameraOff, AlertTriangle, Check, X, 
   RotateCw, Plus, ShoppingBag, Database, ArrowRight,
-  Upload, Trash2, Flame, Package
+  Upload, Trash2, Flame, Package, Layers, ChevronLeft, Search
 } from 'lucide-react';
 import ProductModal from '../components/ProductModal';
+import ChildProductModal from '../components/ChildProductModal';
 import InventoryModal from '../components/InventoryModal';
 import { useToast } from '../context/ToastContext';
 
@@ -171,6 +172,10 @@ export default function Scan({ settings }) {
   const [productModalTargetIndex, setProductModalTargetIndex] = useState(null);
   const [typeSelectIndex, setTypeSelectIndex] = useState(null);
   const [spiceModeForNew, setSpiceModeForNew] = useState(false);
+  const [childModalTargetIndex, setChildModalTargetIndex] = useState(null);
+  const [selectedParentForChild, setSelectedParentForChild] = useState(null);
+  const [isSelectingParent, setIsSelectingParent] = useState(false);
+  const [parentSearch, setParentSearch] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
 
   const fetchCategories = async () => {
@@ -326,6 +331,11 @@ export default function Scan({ settings }) {
     setReceiptItems([]);
     setGlobalStore('');
     setProductModalTargetIndex(null);
+    setTypeSelectIndex(null);
+    setChildModalTargetIndex(null);
+    setSelectedParentForChild(null);
+    setIsSelectingParent(false);
+    setParentSearch('');
     setStep('scan');
     setSearchParams({});
   };
@@ -898,76 +908,197 @@ export default function Scan({ settings }) {
 
       {/* Product Type Selector Modal */}
       {typeSelectIndex !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl glass-panel p-6 space-y-5 relative animate-scale-up text-left border border-slate-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl glass-panel p-6 space-y-5 relative animate-scale-up text-left border border-slate-800 shadow-2xl">
             <button 
-              onClick={() => setTypeSelectIndex(null)}
+              onClick={() => {
+                setTypeSelectIndex(null);
+                setIsSelectingParent(false);
+                setParentSearch('');
+              }}
               className="absolute right-4 top-4 p-1 rounded-full text-slate-400 hover:text-white"
             >
               <X className="h-5 w-5" />
             </button>
 
-            <div className="space-y-1.5">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Database className="h-5 w-5 text-indigo-400" />
-                Select Product Type
-              </h2>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Choose the correct category mode to register "<span className="text-indigo-300 font-semibold">{receiptItems[typeSelectIndex]?.expanded_description}</span>":
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setSpiceModeForNew(false);
-                  setProductModalTargetIndex(typeSelectIndex);
-                  setTypeSelectIndex(null);
-                }}
-                className="group flex items-start gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-indigo-950/20 hover:border-indigo-500/40 transition-all text-left cursor-pointer"
-              >
-                <div className="p-3 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500/20 transition-all">
-                  <Package className="h-6 w-6" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-100 group-hover:text-white">Standard Product</h4>
-                  <p className="text-[11px] text-slate-400 mt-1 leading-normal">
-                    For general items like milk, cereal, canned food, meat, or bakery products.
+            {!isSelectingParent ? (
+              <>
+                <div className="space-y-1.5">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Database className="h-5 w-5 text-indigo-400" />
+                    Select Product Type
+                  </h2>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Choose how to register "<span className="text-indigo-300 font-semibold">{receiptItems[typeSelectIndex]?.expanded_description}</span>":
                   </p>
                 </div>
-              </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setSpiceModeForNew(true);
-                  setProductModalTargetIndex(typeSelectIndex);
-                  setTypeSelectIndex(null);
-                }}
-                className="group flex items-start gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-amber-950/20 hover:border-amber-500/40 transition-all text-left cursor-pointer"
-              >
-                <div className="p-3 rounded-lg bg-amber-500/10 text-amber-400 group-hover:bg-amber-500/20 transition-all">
-                  <Flame className="h-6 w-6" />
+                <div className="grid grid-cols-1 gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpiceModeForNew(false);
+                      setProductModalTargetIndex(typeSelectIndex);
+                      setTypeSelectIndex(null);
+                    }}
+                    className="group flex items-start gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-indigo-950/20 hover:border-indigo-500/40 transition-all text-left cursor-pointer"
+                  >
+                    <div className="p-3 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500/20 transition-all">
+                      <Package className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-100 group-hover:text-white">Standard Product</h4>
+                      <p className="text-[11px] text-slate-400 mt-1 leading-normal">
+                        For general items like milk, cereal, canned food, meat, or bakery products.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpiceModeForNew(true);
+                      setProductModalTargetIndex(typeSelectIndex);
+                      setTypeSelectIndex(null);
+                    }}
+                    className="group flex items-start gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-amber-950/20 hover:border-amber-500/40 transition-all text-left cursor-pointer"
+                  >
+                    <div className="p-3 rounded-lg bg-amber-500/10 text-amber-400 group-hover:bg-amber-500/20 transition-all">
+                      <Flame className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-100 group-hover:text-white">Spice / Condiment</h4>
+                      <p className="text-[11px] text-slate-400 mt-1 leading-normal">
+                        For salt, pepper, garlic powder, hot sauce, ketchup, or other seasonings.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsSelectingParent(true)}
+                    className="group flex items-start gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-purple-950/20 hover:border-purple-500/40 transition-all text-left cursor-pointer"
+                  >
+                    <div className="p-3 rounded-lg bg-purple-500/10 text-purple-400 group-hover:bg-purple-500/20 transition-all">
+                      <Layers className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-100 group-hover:text-white">Add to Existing Product</h4>
+                      <p className="text-[11px] text-slate-400 mt-1 leading-normal">
+                        Add a new brand format under an existing parent product (e.g. new brand of Milk or Salt).
+                      </p>
+                    </div>
+                  </button>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-100 group-hover:text-white">Spice / Condiment</h4>
-                  <p className="text-[11px] text-slate-400 mt-1 leading-normal">
-                    For salt, pepper, garlic powder, hot sauce, ketchup, or other seasonings.
+
+                <div className="flex justify-end gap-2.5 pt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setTypeSelectIndex(null)}
+                    className="px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-350 hover:text-white font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSelectingParent(false);
+                      setParentSearch('');
+                    }}
+                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-white font-semibold cursor-pointer"
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Back
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Layers className="h-5 w-5 text-purple-400" />
+                    Select Existing Parent
+                  </h2>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Choose the parent product for "<span className="text-purple-300 font-semibold">{receiptItems[typeSelectIndex]?.expanded_description}</span>":
                   </p>
                 </div>
-              </button>
-            </div>
 
-            <div className="flex justify-end gap-2.5 pt-2">
-              <button 
-                type="button" 
-                onClick={() => setTypeSelectIndex(null)}
-                className="px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-350 hover:text-white font-semibold text-xs transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-            </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search parent products..."
+                    value={parentSearch}
+                    onChange={(e) => setParentSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 rounded-lg glass-input text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="overflow-y-auto max-h-56 space-y-1.5 pr-1">
+                  {(() => {
+                    const eligible = products.filter(p => p.is_parent === 1 || !p.parent_product_id);
+                    const filtered = eligible.filter(p => {
+                      const term = parentSearch.toLowerCase();
+                      return p.name?.toLowerCase().includes(term) || (p.category && p.category.toLowerCase().includes(term));
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="p-4 text-center text-xs text-slate-500">
+                          No parent products found matching "{parentSearch}".
+                        </div>
+                      );
+                    }
+
+                    return filtered.map(parent => (
+                      <button
+                        key={parent.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedParentForChild(parent);
+                          setChildModalTargetIndex(typeSelectIndex);
+                          setTypeSelectIndex(null);
+                          setIsSelectingParent(false);
+                          setParentSearch('');
+                        }}
+                        className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-900/50 hover:bg-purple-950/20 hover:border-purple-500/40 transition-all text-left cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-base">{parent.is_spice === 1 ? '🌶️' : '📦'}</span>
+                          <div className="min-w-0">
+                            <h4 className="text-xs font-bold text-white truncate">{parent.name}</h4>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              {parent.category || 'General'} • {parent.default_unit || 'package'}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-semibold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20 shrink-0">
+                          Select
+                        </span>
+                      </button>
+                    ));
+                  })()}
+                </div>
+
+                <div className="flex justify-end gap-2.5 pt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setTypeSelectIndex(null);
+                      setIsSelectingParent(false);
+                      setParentSearch('');
+                    }}
+                    className="px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-350 hover:text-white font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -996,6 +1127,33 @@ export default function Scan({ settings }) {
         categories={categories}
         parentProducts={products.filter(p => p.is_parent === 1 || !p.parent_product_id)}
       />
+
+      {/* New Child Product Modal from Receipt Scan */}
+      {childModalTargetIndex !== null && selectedParentForChild && (
+        <ChildProductModal
+          isOpen={childModalTargetIndex !== null}
+          onClose={() => {
+            setChildModalTargetIndex(null);
+            setSelectedParentForChild(null);
+          }}
+          onSave={async (newChildProduct) => {
+            setProducts(prev => [...prev, newChildProduct]);
+            const idx = childModalTargetIndex;
+            if (idx !== null) {
+              setReceiptItems(prev => prev.map((ri, i) => i === idx ? { 
+                ...ri, 
+                matched_product_id: newChildProduct.id,
+                storage_location: newChildProduct.storage_location || ri.storage_location || 'Pantry'
+              } : ri));
+            }
+            setChildModalTargetIndex(null);
+            setSelectedParentForChild(null);
+            fetchProducts();
+          }}
+          parentProduct={selectedParentForChild}
+          prefilledBrand=""
+        />
+      )}
     </div>
   );
 }

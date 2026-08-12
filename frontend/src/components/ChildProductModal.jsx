@@ -7,7 +7,8 @@ export default function ChildProductModal({
   onClose,
   onSave,
   parentProduct,
-  editingProduct = null
+  editingProduct = null,
+  prefilledBrand = ''
 }) {
   const { showToast } = useToast();
   const [brand, setBrand] = useState('');
@@ -61,7 +62,7 @@ export default function ChildProductModal({
         setServingSizeValue(editingProduct.serving_size || 1);
         setImagePath(editingProduct.image_path || '');
       } else {
-        setBrand('');
+        setBrand(prefilledBrand || '');
         setBarcode('');
         setPackageType(parentProduct?.is_spice ? 'jar' : 'package');
         setCapacityValue(parentProduct?.is_spice ? 100 : 500);
@@ -71,7 +72,7 @@ export default function ChildProductModal({
         setImagePath('');
       }
     }
-  }, [isOpen, editingProduct, parentProduct]);
+  }, [isOpen, editingProduct, parentProduct, prefilledBrand]);
 
   if (!isOpen) return null;
 
