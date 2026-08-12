@@ -203,15 +203,21 @@ async function getStockLevels() {
         totalInDefaultUnit += amountInParentUnit;
       }
 
+      // Round to 4 decimal places to prevent IEEE-754 floating point imprecision artifacts (e.g. 3.9999999999999996)
+      const cleanTotalStock = Math.round(totalInDefaultUnit * 10000) / 10000;
+      const minStock = parseFloat(product.minimum_stock) || 0;
+      const shortage = Math.max(0, Math.round((minStock - cleanTotalStock) * 10000) / 10000);
+      const isLow = minStock > 0 && shortage > 0.001;
+
       stockMap.push({
         productId: product.id,
         name: product.name,
         category: product.category,
         defaultUnit: product.default_unit,
-        minimumStock: product.minimum_stock,
-        currentStock: totalInDefaultUnit,
-        isLow: product.minimum_stock > 0 && totalInDefaultUnit < product.minimum_stock,
-        shortage: Math.max(0, product.minimum_stock - totalInDefaultUnit)
+        minimumStock: minStock,
+        currentStock: cleanTotalStock,
+        isLow: isLow,
+        shortage: isLow ? shortage : 0
       });
     }
   }
@@ -1934,18 +1940,22 @@ app.get('/api/shopping-list', async (req, res) => {
     // 2. Fetch stock levels to compile low stock recommendations
     const stockLevels = await getStockLevels();
     const autoItems = stockLevels
-      .filter(stock => stock.isLow)
-      .map(stock => ({
-        id: `auto-${stock.productId}`,
-        product_id: stock.productId,
-        product_name: stock.name,
-        product_brand: null,
-        product_category: stock.category,
-        amount: stock.shortage,
-        unit: stock.defaultUnit,
-        is_auto: true,
-        notes: `Auto-generated: stock (${stock.currentStock.toFixed(1)} ${stock.defaultUnit}) is below minimum (${stock.minimumStock} ${stock.defaultUnit}).`
-      }));
+      .filter(stock => stock.isLow && stock.shortage > 0.001)
+      .map(stock => {
+        const currentStockDisplay = stock.currentStock % 1 === 0 ? stock.currentStock : Number(stock.currentStock.toFixed(2));
+        const minStockDisplay = stock.minimumStock % 1 === 0 ? stock.minimumStock : Number(stock.minimumStock.toFixed(2));
+        return {
+          id: `auto-${stock.productId}`,
+          product_id: stock.productId,
+          product_name: stock.name,
+          product_brand: null,
+          product_category: stock.category,
+          amount: stock.shortage,
+          unit: stock.defaultUnit,
+          is_auto: true,
+          notes: `Auto-generated: stock (${currentStockDisplay} ${stock.defaultUnit}) is below minimum (${minStockDisplay} ${stock.defaultUnit}).`
+        };
+      });
 
     res.json({ manual: manualItems, auto: autoItems });
   } catch (err) {

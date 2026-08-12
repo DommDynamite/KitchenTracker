@@ -448,7 +448,7 @@ export default function ShoppingList() {
                     </div>
                     <div className="shrink-0 text-right">
                       <span className="text-xs font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded">
-                        Shortage: {item.amount.toFixed(1)} {item.unit}
+                        Shortage: {item.amount % 1 === 0 ? item.amount : Number(item.amount.toFixed(2))} {item.unit}
                       </span>
                     </div>
                   </div>

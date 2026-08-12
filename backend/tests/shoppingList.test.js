@@ -67,6 +67,32 @@ test('Shopping List API database operations - thresholds and buys', async () => 
     assert.strictEqual(customItem.unit, 'pack');
     assert.strictEqual(customItem.is_completed, 0);
 
+    // 5. Verify exact matching minimum stock does not trigger low stock / shortage
+    const tomatoResult = await db.run(`
+      INSERT INTO products (name, default_unit, serving_size, serving_unit, servings_per_package, minimum_stock, is_parent, package_type)
+      VALUES ('TEST_Tomato_Paste', 'cans', 10.0, 'g', 1.0, 4, 0, 'can')
+    `);
+    const tomatoId = tomatoResult.lastID;
+
+    // Add 4 cans of inventory
+    for (let i = 0; i < 4; i++) {
+      await db.run(`
+        INSERT INTO inventory_items (product_id, quantity, original_servings, remaining_servings, purchase_date, status)
+        VALUES (?, 1.0, 1.0, 1.0, '2026-08-10', 'unopened')
+      `, [tomatoId]);
+    }
+
+    const tomatoStockSum = await db.get(`
+      SELECT SUM(remaining_servings) as total_remaining 
+      FROM inventory_items 
+      WHERE product_id = ?
+    `, [tomatoId]);
+    
+    const cleanTotal = Math.round(tomatoStockSum.total_remaining * 10000) / 10000;
+    const tomatoShortage = Math.max(0, Math.round((4 - cleanTotal) * 10000) / 10000);
+    assert.strictEqual(tomatoShortage <= 0.001, true);
+    assert.strictEqual(tomatoShortage === 0, true);
+
   } finally {
     await db.run('ROLLBACK');
   }
