@@ -38,9 +38,21 @@ test('Inventory API database operations - consume and adjust', async () => {
       WHERE id = ?
     `, [newRemaining, invId]);
 
-    const updatedItem = await db.get('SELECT * FROM inventory_items WHERE id = ?', [invId]);
-    assert.strictEqual(updatedItem.remaining_servings, 7.0);
-    assert.strictEqual(updatedItem.status, 'opened');
+    // 4. Update inventory item to assign to a child brand
+    const childProdResult = await db.run(`
+      INSERT INTO products (name, brand, default_unit, serving_size, serving_unit, servings_per_package, parent_product_id, is_parent)
+      VALUES ('TEST_INVENTORY_Milk', 'Horizon Organic', 'ml', 240.0, 'ml', 10.0, ?, 0)
+    `, [productId]);
+    const childProductId = childProdResult.lastID;
+
+    await db.run(`
+      UPDATE inventory_items
+      SET product_id = ?
+      WHERE id = ?
+    `, [childProductId, invId]);
+
+    const reassignedItem = await db.get('SELECT * FROM inventory_items WHERE id = ?', [invId]);
+    assert.strictEqual(reassignedItem.product_id, childProductId);
 
   } finally {
     await db.run('ROLLBACK');

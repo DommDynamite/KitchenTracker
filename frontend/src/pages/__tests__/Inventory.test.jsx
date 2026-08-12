@@ -146,4 +146,93 @@ describe('Inventory Page Component', () => {
       expect(screen.queryByText(/Are you sure you want to consume all remaining servings/i)).not.toBeInTheDocument();
     });
   });
+
+  it('allows updating an inventory package brand to a child product in edit modal', async () => {
+    const customProducts = [
+      { id: 100, name: 'Tortillas', category: 'Pantry', is_parent: 1, brand: '' },
+      { id: 101, name: 'Tortillas', category: 'Pantry', is_parent: 0, brand: 'Mission', parent_product_id: 100 }
+    ];
+    const customInventory = [
+      {
+        id: 50,
+        product_id: 100,
+        parent_product_id: null,
+        product_name: 'Tortillas',
+        product_brand: '',
+        quantity: 1,
+        remaining_servings: 10,
+        original_servings: 10,
+        storage_location: 'Pantry',
+        expiration_date: '2026-08-20',
+        purchase_date: '2026-08-01',
+        status: 'unopened'
+      }
+    ];
+
+    let putBody = null;
+    globalThis.fetch = vi.fn().mockImplementation((url, opts) => {
+      if (url.includes('/api/inventory/50') && opts?.method === 'PUT') {
+        putBody = JSON.parse(opts.body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ message: 'Updated', id: 50, product_id: putBody.product_id })
+        });
+      }
+      if (url.includes('/api/inventory')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => customInventory
+        });
+      }
+      if (url.includes('/api/products')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => customProducts
+        });
+      }
+      if (url.includes('/api/locations')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => mockLocations
+        });
+      }
+      if (url.includes('/api/categories')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => mockCategories
+        });
+      }
+      return Promise.resolve({ ok: false });
+    });
+
+    render(
+      <MemoryRouter>
+        <Inventory />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Tortillas')).toBeInTheDocument();
+    });
+
+    // Open manage packages modal
+    fireEvent.click(screen.getByTitle('Manage Product Packages'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Product Brand/i)).toBeInTheDocument();
+    });
+
+    // Change brand dropdown to Mission (id: 101)
+    fireEvent.change(screen.getByLabelText(/Product Brand/i), {
+      target: { value: '101' }
+    });
+
+    // Click Save Changes
+    fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }));
+
+    await waitFor(() => {
+      expect(putBody).not.toBeNull();
+      expect(putBody.product_id).toBe(101);
+    });
+  });
 });

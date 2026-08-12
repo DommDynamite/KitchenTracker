@@ -572,7 +572,7 @@ app.post('/api/inventory', async (req, res) => {
 
 // Update inventory item details or remaining servings manually
 app.put('/api/inventory/:id', async (req, res) => {
-  const { quantity, remaining_servings, status, opened_date, storage_location, expiration_date } = req.body;
+  const { product_id, quantity, remaining_servings, status, opened_date, storage_location, expiration_date } = req.body;
 
   try {
     const db = await getDb();
@@ -585,8 +585,10 @@ app.put('/api/inventory/:id', async (req, res) => {
       return res.status(404).json({ error: 'Inventory item not found' });
     }
 
+    let nextProductId = (product_id !== undefined && product_id !== null) ? parseInt(product_id, 10) : item.product_id;
+
     // Fetch product details for servings per package and name
-    const product = await db.get('SELECT name, servings_per_package FROM products WHERE id = ?', [item.product_id]);
+    const product = await db.get('SELECT name, servings_per_package FROM products WHERE id = ?', [nextProductId]);
     const servingsPerPackage = product ? product.servings_per_package : 1.0;
     const productName = product ? product.name : 'Unknown Product';
 
@@ -611,6 +613,7 @@ app.put('/api/inventory/:id', async (req, res) => {
 
     await db.run(
       `UPDATE inventory_items SET
+        product_id = ?,
         quantity = ?,
         original_servings = ?,
         remaining_servings = ?,
@@ -620,6 +623,7 @@ app.put('/api/inventory/:id', async (req, res) => {
         expiration_date = ?
       WHERE id = ?`,
       [
+        nextProductId,
         nextQuantity,
         nextOriginalServings,
         nextServings,
@@ -639,7 +643,9 @@ app.put('/api/inventory/:id', async (req, res) => {
         JSON.stringify({
           product_name: productName,
           item_id: item.id,
+          product_id: nextProductId,
           previous_state: {
+            product_id: item.product_id,
             quantity: item.quantity,
             original_servings: item.original_servings,
             remaining_servings: item.remaining_servings,
@@ -653,7 +659,7 @@ app.put('/api/inventory/:id', async (req, res) => {
     );
 
     await db.run('COMMIT');
-    res.json({ message: 'Inventory item updated successfully' });
+    res.json({ message: 'Inventory item updated successfully', id: item.id, product_id: nextProductId });
   } catch (err) {
     const db = await getDb();
     try { await db.run('ROLLBACK'); } catch (_) {}

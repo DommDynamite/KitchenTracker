@@ -143,6 +143,7 @@ export default function Inventory() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [selectedPackage, setSelectedPackage] = useState(null);
+  const [editProductId, setEditProductId] = useState(null);
   const [editQuantity, setEditQuantity] = useState(1);
   const [editRemainingServings, setEditRemainingServings] = useState(1);
   const [editStorageLocation, setEditStorageLocation] = useState('Pantry');
@@ -352,6 +353,7 @@ export default function Inventory() {
     setSelectedPackage(pkg);
     const group = currentGroup || (pkg ? groupedInventory.find(g => g.product_id === (pkg.parent_product_id || pkg.product_id)) : null);
     if (pkg) {
+      setEditProductId(pkg.product_id);
       setEditQuantity(pkg.quantity);
       setEditRemainingServings(pkg.remaining_servings);
       const hasPantry = locations.find(l => l.name.toLowerCase() === 'pantry');
@@ -366,6 +368,7 @@ export default function Inventory() {
       }
       setEditUnitMode('servings');
     } else {
+      setEditProductId(null);
       setEditQuantity(1);
       setEditRemainingServings(0);
       const hasPantry = locations.find(l => l.name.toLowerCase() === 'pantry');
@@ -382,6 +385,7 @@ export default function Inventory() {
     if (!selectedPackage) return;
 
     const payload = {
+      product_id: editProductId,
       quantity: parseFloat(editQuantity),
       remaining_servings: parseFloat(editRemainingServings),
       storage_location: editStorageLocation,
@@ -397,6 +401,7 @@ export default function Inventory() {
       if (res.ok) {
         setSearchParams({});
         fetchInventoryAndProducts();
+        showToast('Package updated successfully!', 'success');
       } else {
         const err = await res.json();
         showToast(`Error updating item: ${err.error}`, 'error');
@@ -662,6 +667,34 @@ export default function Inventory() {
     return groupsList;
   }, [inventory, products, searchQuery, selectedLocations, filterExpiringSoon, sortBy]);
 
+  const availableBrandProducts = useMemo(() => {
+    if (!editingGroup) return [];
+    const parentId = editingGroup.product_id;
+    const parentProduct = products.find(p => p.id === parentId);
+    const childProducts = products.filter(p => p.parent_product_id === parentId);
+
+    const list = [];
+    if (parentProduct) {
+      list.push({
+        id: parentProduct.id,
+        name: parentProduct.name,
+        brand: parentProduct.brand || 'Generic / Unbranded',
+        is_parent: true,
+        image_path: parentProduct.image_path
+      });
+    }
+    childProducts.forEach(c => {
+      list.push({
+        id: c.id,
+        name: c.name,
+        brand: c.brand || c.name,
+        is_parent: false,
+        image_path: c.image_path
+      });
+    });
+    return list;
+  }, [editingGroup, products]);
+
   const syncSelectedPackage = (freshPkg, group = editingGroup) => {
     if (!freshPkg) {
       if (selectedPackage !== null) {
@@ -671,6 +704,7 @@ export default function Inventory() {
     }
     if (!selectedPackage || 
         selectedPackage.id !== freshPkg.id ||
+        selectedPackage.product_id !== freshPkg.product_id ||
         selectedPackage.quantity !== freshPkg.quantity ||
         selectedPackage.remaining_servings !== freshPkg.remaining_servings ||
         selectedPackage.storage_location !== freshPkg.storage_location ||
@@ -1347,25 +1381,52 @@ export default function Inventory() {
                   </span>
                 </div>
 
-                <div className="bg-indigo-950/20 p-3 rounded-xl border border-indigo-500/10 text-xs flex items-center gap-3">
-                  {selectedPackage.product_image ? (
-                    <img src={selectedPackage.product_image} alt="" className="h-12 w-12 object-cover rounded-lg border border-slate-800 shrink-0" />
-                  ) : (
-                    <div className="h-12 w-12 rounded-lg border border-slate-850 bg-slate-950 flex items-center justify-center shrink-0">
-                      <Package className="h-6 w-6 text-slate-600" />
+                {(() => {
+                  const activeProd = products.find(p => p.id === editProductId) || selectedPackage;
+                  const img = activeProd.image_path || activeProd.product_image || selectedPackage.product_image;
+                  const name = activeProd.name || selectedPackage.product_name;
+                  const brand = activeProd.brand || selectedPackage.product_brand;
+
+                  return (
+                    <div className="bg-indigo-950/20 p-3 rounded-xl border border-indigo-500/10 text-xs flex items-center gap-3">
+                      {img ? (
+                        <img src={img} alt="" className="h-12 w-12 object-cover rounded-lg border border-slate-800 shrink-0" />
+                      ) : (
+                        <div className="h-12 w-12 rounded-lg border border-slate-850 bg-slate-950 flex items-center justify-center shrink-0">
+                          <Package className="h-6 w-6 text-slate-600" />
+                        </div>
+                      )}
+                      <div>
+                        <strong className="text-white text-sm block truncate max-w-[400px]" title={name}>
+                          {name}
+                        </strong>
+                        {brand && (
+                          <span className="text-slate-400 block mt-0.5">Brand: {brand}</span>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  <div>
-                    <strong className="text-white text-sm block truncate max-w-[400px]" title={selectedPackage.product_name}>
-                      {selectedPackage.product_name}
-                    </strong>
-                    {selectedPackage.product_brand && (
-                      <span className="text-slate-400 block mt-0.5">Brand: {selectedPackage.product_brand}</span>
-                    )}
-                  </div>
-                </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-2 gap-4">
+                  {/* Brand Selector */}
+                  {availableBrandProducts.length > 1 && (
+                    <div className="space-y-1.5 col-span-2">
+                      <label htmlFor="edit-product-brand" className="block text-slate-400 font-semibold">Product Brand</label>
+                      <select
+                        id="edit-product-brand"
+                        value={editProductId || ''}
+                        onChange={(e) => setEditProductId(Number(e.target.value))}
+                        className="w-full p-2.5 rounded-lg glass-input bg-slate-900 font-semibold text-white text-xs cursor-pointer"
+                      >
+                        {availableBrandProducts.map(b => (
+                          <option key={b.id} value={b.id} className="bg-slate-950 text-white">
+                            {b.is_parent ? `${b.name} (Generic / Unbranded)` : `${b.brand} (${b.name})`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   {/* Servings Remaining */}
                   {editingGroup.product_unit === '%' ? (
                     <div className="space-y-1.5 col-span-2">
